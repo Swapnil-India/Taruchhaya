@@ -309,19 +309,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- Logout ---
-    const logoutBtn = document.getElementById('logoutBtn');
-    const headerLogoutBtn = document.getElementById('headerLogoutBtn');
+    // --- Report Generation Logic ---
+    async function generateAndUploadReport(silent = false) {
+        if (typeof gapi === 'undefined' || !gapi.client || gapi.client.getToken() === null) {
+            showToast('Please connect Google Drive in Settings first!', 'warning');
+            return;
+        }
 
-    async function processLogout(e) {
-        e.preventDefault();
+        if (!silent) showToast('Generating business report and uploading to Drive...', 'info');
 
-        if (typeof gapi !== 'undefined' && gapi.client && gapi.client.getToken() !== null) {
-            showToast('Generating business report and securely logging out...', 'info');
-
+        try {
             const now = new Date();
-
-            // ── Unique timestamped filename — a NEW file every single logout ──────
             const dd = String(now.getDate()).padStart(2, '0');
             const mm = String(now.getMonth() + 1).padStart(2, '0');
             const yyyy = now.getFullYear();
@@ -330,7 +328,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const SS = String(now.getSeconds()).padStart(2, '0');
             const reportFileName = `Taruchhaya_Report_${dd}-${mm}-${yyyy}_${HH}h${MM}m${SS}s.txt`;
 
-            // Session Session Tracking
+            // Session Tracking
             const sessionStartMs = parseInt(sessionStorage.getItem('ti_session_start')) || now.getTime();
             const durationMs = now.getTime() - sessionStartMs;
             const diffHours = Math.floor(durationMs / 3600000);
@@ -349,9 +347,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 .sort((a, b) => b.sessionSold - a.sessionSold)
                 .slice(0, 5);
 
-            let r = `End of Day Inventory Report\n\n`;
+            let r = `Daily Business Performance Report\n\n`;
             r += `Date: ${now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}\n`;
-            r += `Business Name: Taruchhaya Enterprise\n`;
+            r += `Business: Taruchhaya Enterprise\n`;
             r += `Generated At: ${now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}\n\n`;
 
             r += `🧾 Sales Summary\n`;
@@ -361,7 +359,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             r += `📦 Inventory Movement\n`;
             const nameWidth = 24, numWidth = 14;
-            r += `${'Item Name'.padEnd(nameWidth)}\t${'Opening Stock'.padEnd(numWidth)}\t${'Purchased'.padEnd(numWidth)}\t${'Sold'.padEnd(numWidth)}\tClosing Stock\n`;
+            r += `${'Item Name'.padEnd(nameWidth)}\t${'Opening'.padEnd(numWidth)}\t${'Purchased'.padEnd(numWidth)}\t${'Sold'.padEnd(numWidth)}\tClosing\n`;
 
             inventory.forEach(item => {
                 const sold = item.sessionSold || 0;
@@ -374,73 +372,86 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             r += `\n`;
 
-            r += `🔄 Purchase Summary\n`;
-            r += `Total Purchase Orders: ${poCount}\n`;
-            r += `Total Purchase Value: ₹${poValue.toLocaleString('en-IN')}\n\n`;
+            r += `🔄 Purchase Order Analytics\n`;
+            r += `Total POs Issued: ${poCount}\n`;
+            r += `Total PO Value: ₹${poValue.toLocaleString('en-IN')}\n\n`;
 
-            r += `📈 Top Selling Items\n`;
+            r += `📈 Best Selling Categories\n`;
             if (topSellers.length > 0) {
                 topSellers.forEach(item => r += `${item.name} → ${item.sessionSold} units\n`);
             } else {
-                r += `   None sold today.\n`;
+                r += `   No sales recorded this session.\n`;
             }
             r += `\n`;
 
             const restocked = inventory.filter(i => i.restockCount > 0);
             if (restocked.length > 0) {
-                r += `📋 Restock Actions\n`;
+                r += `📋 Operational Log (Restocks)\n`;
                 restocked.forEach(item => {
                     const t = new Date(item.lastRestockTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-                    r += `${item.name} (Restocked ${item.restockCount} times) @ ${t}\n`;
+                    r += `${item.name} (${item.restockCount} times) @ ${t}\n`;
                 });
                 r += `\n`;
             }
 
-            r += `📝 Notes\n`;
-            r += `System auto-generated daily summary.\n\n`;
+            r += `🔐 Session Metadata\n`;
+            r += `Duration: ${durationStr}\n`;
+            r += `Status: Verified\n\n`;
+            r += `✅ End of Generated Report\n`;
 
-            r += `🔐 System Info\n`;
-            r += `Session Duration: ${durationStr}\n`;
-            r += `System Status: Successfully Closed\n\n`;
-            r += `✅ End of Report\n`;
+            // -- Upload to Drive --
+            const boundary = '-------taruchhayareport2026';
+            const delimiter = `\r\n--${boundary}\r\n`;
+            const close_delim = `\r\n--${boundary}--`;
+            const metadata = { name: reportFileName, mimeType: 'text/plain' };
 
-            // ── Upload as ALWAYS NEW file, never overwriting any previous report ──
-            try {
-                if (typeof syncToDrive === 'function') await syncToDrive(true);
+            const multipartBody =
+                delimiter + 'Content-Type: application/json\r\n\r\n' + JSON.stringify(metadata) +
+                delimiter + 'Content-Type: text/plain; charset=utf-8\r\n\r\n' + r +
+                close_delim;
 
-                const boundary = '-------taruchhayareport2026';
-                const delimiter = `\r\n--${boundary}\r\n`;
-                const close_delim = `\r\n--${boundary}--`;
-                const metadata = { name: reportFileName, mimeType: 'text/plain' };
+            await gapi.client.request({
+                path: '/upload/drive/v3/files',
+                method: 'POST',
+                params: { uploadType: 'multipart' },
+                headers: { 'Content-Type': `multipart/related; boundary="${boundary}"` },
+                body: multipartBody
+            });
 
-                const multipartBody =
-                    delimiter + 'Content-Type: application/json\r\n\r\n' + JSON.stringify(metadata) +
-                    delimiter + 'Content-Type: text/plain; charset=utf-8\r\n\r\n' + r +
-                    close_delim;
-
-                await gapi.client.request({
-                    path: '/upload/drive/v3/files',
-                    method: 'POST',
-                    params: { uploadType: 'multipart' },
-                    headers: { 'Content-Type': `multipart/related; boundary="${boundary}"` },
-                    body: multipartBody
-                });
-
-            } catch (err) {
-                console.error('Failed to upload report to Drive:', err);
-            }
+            if (!silent) showToast('✅ Report successfully uploaded to Google Drive!', 'success');
+            return true;
+        } catch (err) {
+            console.error('Report upload failed:', err);
+            if (!silent) showToast('Failed to upload report to Drive.', 'error');
+            return false;
         }
+    }
 
-        // Wipe local session + data — next login starts completely fresh
-        sessionStorage.removeItem('ti_session');
-        localStorage.removeItem('ti_session');
-        localStorage.removeItem('taruchhaya_inventory');
-        localStorage.removeItem('taruchhaya_revenue');
-        window.location.href = 'login.html';
+    // --- Logout & Report Buttons ---
+    const reportBtn = document.getElementById('reportBtn');
+    const headerReportBtn = document.getElementById('headerReportBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const headerLogoutBtn = document.getElementById('headerLogoutBtn');
+
+    if (reportBtn) reportBtn.addEventListener('click', (e) => { e.preventDefault(); generateAndUploadReport(); });
+    if (headerReportBtn) headerReportBtn.addEventListener('click', (e) => { e.preventDefault(); generateAndUploadReport(); });
+
+    async function processLogout(e) {
+        e.preventDefault();
+        
+        customConfirm('Logout Confirmation', 'Are you sure you want to end your session? Your local data will be cleared for security.', () => {
+             // Wipe local session + data — next login starts completely fresh
+            sessionStorage.removeItem('ti_session');
+            localStorage.removeItem('ti_session');
+            localStorage.removeItem('taruchhaya_inventory');
+            localStorage.removeItem('taruchhaya_revenue');
+            window.location.href = 'login.html';
+        });
     }
 
     if (logoutBtn) logoutBtn.addEventListener('click', processLogout);
     if (headerLogoutBtn) headerLogoutBtn.addEventListener('click', processLogout);
+
 
     // --- Dashboard Logic ---
     function updateDashboard() {
