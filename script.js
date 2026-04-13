@@ -489,7 +489,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 close_delim;
 
             const response = await gapi.client.request({
-                path: '/upload/drive/v3/files',
+                path: 'https://www.googleapis.com/upload/drive/v3/files',
                 method: 'POST',
                 params: { uploadType: 'multipart' },
                 headers: { 'Content-Type': `multipart/related; boundary="${boundary}"` },
@@ -508,7 +508,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (!silent) {
                 if (errMsg.toLowerCase().includes('origin') || errMsg.toLowerCase().includes('unauthorized') || err.status === 401 || err.status === 403) {
-                    showToast("Security Link Interrupted: Please 'Disconnect' and 'Connect' Drive again in Settings.", "warning");
+                    showToast(`Security Error: Ensure '${window.location.origin}' is added to 'Authorized JavaScript Origins' in your Google Console. Then Disconnect & Connect again.`, "warning");
                 } else {
                     showToast('Failed to upload report: ' + errMsg, 'error');
                 }
@@ -1366,7 +1366,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (files.length > 0) {
                 const fileId = files[0].id;
                 await gapi.client.request({
-                    path: '/upload/drive/v3/files/' + fileId,
+                    path: 'https://www.googleapis.com/upload/drive/v3/files/' + fileId,
                     method: 'PATCH',
                     params: { uploadType: 'media' },
                     body: fileContent
@@ -1383,7 +1383,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     close_delim;
 
                 await gapi.client.request({
-                    'path': '/upload/drive/v3/files',
+                    'path': 'https://www.googleapis.com/upload/drive/v3/files',
                     'method': 'POST',
                     'params': { 'uploadType': 'multipart' },
                     'headers': { 'Content-Type': 'multipart/related; boundary="' + boundary + '"' },
@@ -1407,7 +1407,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!silent) {
                 if (errMsg.toLowerCase().includes('origin') || errMsg.toLowerCase().includes('unauthorized') || err.status === 401 || err.status === 403) {
-                    showToast("Security Update Detected: Please 'Disconnect' and 'Connect' Drive again in Settings.", "warning");
+                    showToast(`Security Error: Ensure '${window.location.origin}' is added to 'Authorized JavaScript Origins' in Google Console. Then Disconnect & Connect again.`, "warning");
                 } else {
                     showToast("Sync failed: " + errMsg, "error");
                 }
