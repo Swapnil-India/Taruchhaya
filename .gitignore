@@ -1,0 +1,17 @@
+# Ignored files for Taruchhaya Project
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Local environment settings
+.env
+.env.local
+
+# Project specific local backups
+*.bak
+*.tmp
+
+# Browser data
+.vscode/
+.idea/

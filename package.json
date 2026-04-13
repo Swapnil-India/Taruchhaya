@@ -1,0 +1,24 @@
+{
+  "name": "taruchhaya-inventory",
+  "version": "1.0.0",
+  "description": "Next-Gen Business Management & Inventory System",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx serve .",
+    "dev": "npx serve -l 3000 .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "inventory",
+    "pos",
+    "management",
+    "glassmorphism",
+    "google-drive",
+    "analytics"
+  ],
+  "author": "Taruchhaya Enterprise",
+  "license": "MIT",
+  "devDependencies": {
+    "serve": "^14.2.1"
+  }
+}

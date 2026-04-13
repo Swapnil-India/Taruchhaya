@@ -1,20 +1,45 @@
-// Nova AI - Next-Gen Business Management Logic (Functional System)
+/**
+ * 🌳 Taruchhaya Inventory Management System
+ * Next-Gen Business Logic (Professional Version)
+ * 
+ * @author Taruchhaya Enterprise
+ * @version 1.0.0
+ * @license MIT
+ */
 
-/* --- Google Drive Global Initialization --- */
-const DEFAULT_CLIENT_ID = '399513000518-8b1o4jm1jsq6oppu6kae46q4trnv4u6s.apps.googleusercontent.com';
-let GOOGLE_CLIENT_ID = localStorage.getItem('taruchhaya_drive_client_id') || DEFAULT_CLIENT_ID;
-const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
-const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+/* --- ⚙️ System Configuration --- */
+const CONFIG = {
+    DRIVE: {
+        DEFAULT_CLIENT_ID: '399513000518-8b1o4jm1jsq6oppu6kae46q4trnv4u6s.apps.googleusercontent.com',
+        DISCOVERY_DOC: 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest',
+        SCOPES: 'https://www.googleapis.com/auth/drive.file'
+    },
+    DATABASE: {
+        NAME: 'TaruchhayaDB',
+        VERSION: 1,
+        STORE: 'app_data'
+    },
+    ADMIN: {
+        DEFAULT_PIN: '1234'
+    }
+};
 
+/* --- 🌏 Global State --- */
+let GOOGLE_CLIENT_ID = localStorage.getItem('taruchhaya_drive_client_id') || CONFIG.DRIVE.DEFAULT_CLIENT_ID;
 let tokenClient;
 let gapiInited = false;
 let gisInited = false;
+let inventory = [];
+let totalRevenue = 0;
+let analyticsChartObj = null;
+
+/* --- 🛡️ Google Drive API Lifecycle --- */
 
 window.gapiLoaded = function () {
     console.log("GAPI script loaded");
     gapi.load('client', async () => {
         try {
-            await gapi.client.init({ discoveryDocs: [DISCOVERY_DOC] });
+            await gapi.client.init({ discoveryDocs: [CONFIG.DRIVE.DISCOVERY_DOC] });
             gapiInited = true;
             console.log("GAPI Client initialized");
             if (window.checkBeforeStart) window.checkBeforeStart();
@@ -33,7 +58,7 @@ function initTokenClient() {
     try {
         tokenClient = google.accounts.oauth2.initTokenClient({
             client_id: GOOGLE_CLIENT_ID,
-            scope: SCOPES,
+            scope: CONFIG.DRIVE.SCOPES,
             callback: '', // assigned in click handler
         });
         gisInited = true;
@@ -93,7 +118,11 @@ window.checkBeforeStart = function () {
 };
 
 
-/* --- Integrated Notification & Confirmation System --- */
+/**
+ * Displays a non-blocking toast notification.
+ * @param {string} message - Content to display.
+ * @param {'success'|'error'|'warning'|'info'} type - Notification style.
+ */
 function showToast(message, type = 'success') {
     let container = document.getElementById('toast-container');
     if (!container) {
@@ -175,18 +204,19 @@ function customConfirm(title, message, onConfirm) {
 // Override native alert/confirm for legacy calls if any remain
 window.alert = (msg) => showToast(msg, 'info');
 
-/* --- IndexedDB Wrapper --- */
-const DB_NAME = 'TaruchhayaDB';
-const DB_VERSION = 1;
-const STORE_NAME = 'app_data';
+/* --- 📦 IndexedDB Resilience Layer --- */
 
+/**
+ * Initializes the IndexedDB instance.
+ * @returns {Promise<IDBDatabase>}
+ */
 async function initDB() {
     return new Promise((resolve, reject) => {
-        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        const request = indexedDB.open(CONFIG.DATABASE.NAME, CONFIG.DATABASE.VERSION);
         request.onupgradeneeded = (e) => {
             const db = e.target.result;
-            if (!db.objectStoreNames.contains(STORE_NAME)) {
-                db.createObjectStore(STORE_NAME);
+            if (!db.objectStoreNames.contains(CONFIG.DATABASE.STORE)) {
+                db.createObjectStore(CONFIG.DATABASE.STORE);
             }
         };
         request.onsuccess = () => resolve(request.result);
@@ -197,8 +227,8 @@ async function initDB() {
 async function idbGet(key) {
     const db = await initDB();
     return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, 'readonly');
-        const store = tx.objectStore(STORE_NAME);
+        const tx = db.transaction(CONFIG.DATABASE.STORE, 'readonly');
+        const store = tx.objectStore(CONFIG.DATABASE.STORE);
         const req = store.get(key);
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
@@ -208,23 +238,20 @@ async function idbGet(key) {
 async function idbSet(key, value) {
     const db = await initDB();
     return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        const store = tx.objectStore(STORE_NAME);
+        const tx = db.transaction(CONFIG.DATABASE.STORE, 'readwrite');
+        const store = tx.objectStore(CONFIG.DATABASE.STORE);
         const req = store.put(value, key);
         req.onsuccess = () => resolve();
         req.onerror = () => reject(req.error);
     });
 }
 
+/* --- 🚀 Core Application Controller --- */
 document.addEventListener('DOMContentLoaded', () => {
 
-    // --- Data Management (IndexedDB + LocalStorage Fallback) ---
     if (!sessionStorage.getItem('ti_session_start')) {
         sessionStorage.setItem('ti_session_start', Date.now().toString());
     }
-
-    let inventory = [];
-    let totalRevenue = 0;
 
     async function initializeData() {
         // Populate Client ID input in settings
@@ -730,8 +757,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const pinInput = document.getElementById('adminPinInput');
             const pinError = document.getElementById('pinError');
 
-            // Set the Admin PIN here (currently '1234')
-            if (pinInput.value === '1234') {
+            // Set the Admin PIN here
+            if (pinInput.value === CONFIG.ADMIN.DEFAULT_PIN) {
                 inventory = [];
                 totalRevenue = 0;
                 localStorage.removeItem('taruchhaya_inventory');
@@ -1414,9 +1441,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (resetClientIdBtn && driveClientIdInput) {
         resetClientIdBtn.addEventListener('click', () => {
-            GOOGLE_CLIENT_ID = DEFAULT_CLIENT_ID;
+            GOOGLE_CLIENT_ID = CONFIG.DRIVE.DEFAULT_CLIENT_ID;
             localStorage.removeItem('taruchhaya_drive_client_id');
-            driveClientIdInput.value = DEFAULT_CLIENT_ID;
+            driveClientIdInput.value = CONFIG.DRIVE.DEFAULT_CLIENT_ID;
             initTokenClient();
             showToast("Client ID reset to system default.", "info");
         });
