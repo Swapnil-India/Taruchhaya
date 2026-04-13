@@ -89,4 +89,4 @@ Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
 
-Developed with ❤️ by **Taruchhaya Enterprise**.
+Developed with ❤️ by **Swapnil Sarkar**.
