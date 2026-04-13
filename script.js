@@ -1386,8 +1386,24 @@ document.addEventListener('DOMContentLoaded', () => {
             updateDriveUI(true);
             if (!silent) showToast("✅ Synced to Google Drive!", "success");
         } catch (err) {
-            console.error(err);
-            if (!silent) showToast("Sync failed: " + err.message, "error");
+            console.error("Sync Error Details:", err);
+            
+            let errMsg = err.message || "Unknown error";
+            
+            // Handle structured GAPI errors
+            if (err.result && err.result.error) {
+                errMsg = err.result.error.message;
+            } else if (typeof err === 'string') {
+                errMsg = err;
+            }
+
+            if (!silent) {
+                if (errMsg.toLowerCase().includes('origin') || errMsg.toLowerCase().includes('unauthorized') || err.status === 401 || err.status === 403) {
+                    showToast("Security Update Detected: Please 'Disconnect' and 'Connect' Drive again in Settings.", "warning");
+                } else {
+                    showToast("Sync failed: " + errMsg, "error");
+                }
+            }
         }
     }
 
@@ -1420,8 +1436,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.querySelector('[data-view="dashboard"]').click();
             });
         } catch (err) {
-            console.error(err);
-            showToast("Pull failed: " + err.message, "error");
+            console.error("Pull Error Details:", err);
+            
+            let errMsg = err.message || "Unknown error";
+            
+            // Handle structured GAPI errors
+            if (err.result && err.result.error) {
+                errMsg = err.result.error.message;
+            }
+
+            if (errMsg.toLowerCase().includes('origin') || errMsg.toLowerCase().includes('unauthorized') || err.status === 401 || err.status === 403) {
+                showToast("Security Update Detected: Please 'Disconnect' and 'Connect' Drive again in Settings.", "warning");
+            } else {
+                showToast("Pull failed: " + errMsg, "error");
+            }
         }
     }
 
