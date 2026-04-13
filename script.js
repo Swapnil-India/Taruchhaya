@@ -289,6 +289,14 @@ document.addEventListener('DOMContentLoaded', () => {
         updateDashboard();
         renderInventoryTable();
         populatePosSelect();
+
+        // Check if this is a fresh visit in a new tab session
+        // If so, reset the session-only metrics
+        if (!sessionStorage.getItem('ti_session_active')) {
+            resetSessionAnalytics();
+            sessionStorage.setItem('ti_session_active', 'true');
+        }
+
         scheduleDriveAutoSync();
     }
 
@@ -309,6 +317,31 @@ document.addEventListener('DOMContentLoaded', () => {
         idbSet('taruchhaya_revenue', totalRevenue).catch(err => console.error("IDB Save Error", err));
         updateDashboard();
         scheduleDriveAutoSync();
+    }
+
+    /**
+     * Resets session-specific analytics (counters for the current day/session)
+     * without deleting the actual inventory products or overall stock.
+     */
+    function resetSessionAnalytics() {
+        console.log("Resetting session analytics...");
+        
+        // Reset session-specific counters in inventory items
+        inventory.forEach(item => {
+            item.sessionSold = 0;
+            item.sessionPurchased = 0;
+            item.restockCount = 0;
+        });
+
+        // Clear session tracking variables
+        sessionStorage.setItem('ti_tx_count', '0');
+        sessionStorage.setItem('ti_po_count', '0');
+        sessionStorage.setItem('ti_po_value', '0');
+        
+        // We do NOT reset totalRevenue or inventory stock here, 
+        // as those are lifetime/persistent assets.
+        
+        saveInventory();
     }
 
     // --- Navigation & Views ---
@@ -365,12 +398,29 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const token = JSON.parse(savedToken);
                 if (Date.now() >= token.expires_at) {
-                    if (!silent) showToast('Session expired. Refreshing Drive connection...', 'info');
+                    if (!silent) showToast('Refreshing Drive connection...', 'info');
                     await new Promise((resolve, reject) => {
                         tokenClient.callback = (resp) => {
                             if (resp.error) {
-                                localStorage.removeItem('taruchhaya_drive_connected');
-                                reject(resp);
+                                // If silent refresh fails and it's NOT a background sync, 
+                                // ask for user consent to re-login.
+                                if (!silent) {
+                                    tokenClient.callback = (retryResp) => {
+                                        if (retryResp.error) {
+                                            localStorage.removeItem('taruchhaya_drive_connected');
+                                            reject(retryResp);
+                                        } else {
+                                            retryResp.expires_at = Date.now() + (retryResp.expires_in * 1000);
+                                            localStorage.setItem('google_drive_token', JSON.stringify(retryResp));
+                                            gapi.client.setToken(retryResp);
+                                            resolve();
+                                        }
+                                    };
+                                    tokenClient.requestAccessToken({ prompt: 'select_account' });
+                                } else {
+                                    localStorage.removeItem('taruchhaya_drive_connected');
+                                    reject(resp);
+                                }
                             } else {
                                 resp.expires_at = Date.now() + (resp.expires_in * 1000);
                                 localStorage.setItem('google_drive_token', JSON.stringify(resp));
@@ -384,34 +434,36 @@ document.addEventListener('DOMContentLoaded', () => {
                     gapi.client.setToken(token);
                 }
             } catch (e) {
-                showToast('Please connect Google Drive in Settings!', 'warning');
+                if (!silent) showToast('Please connect Google Drive in Settings!', 'warning');
                 return;
             }
         }
 
         if (gapi.client.getToken() === null) {
-            showToast('Please connect Google Drive in Settings first!', 'warning');
+            if (!silent) showToast('Please connect Google Drive in Settings first!', 'warning');
             return;
         }
 
-        if (!silent) showToast('Generating business report and uploading to Drive...', 'info');
+        if (!silent) showToast('Generating professional business report...', 'info');
 
         try {
             const now = new Date();
+            const dateStr = now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+            const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+            
             const dd = String(now.getDate()).padStart(2, '0');
             const mm = String(now.getMonth() + 1).padStart(2, '0');
             const yyyy = now.getFullYear();
             const HH = String(now.getHours()).padStart(2, '0');
             const MM = String(now.getMinutes()).padStart(2, '0');
-            const SS = String(now.getSeconds()).padStart(2, '0');
-            const reportFileName = `Taruchhaya_Report_${dd}-${mm}-${yyyy}_${HH}h${MM}m${SS}s.txt`;
+            const reportFileName = `Taruchhaya_Report_${dd}${mm}${yyyy}_${HH}${MM}.txt`;
 
-            // Session Tracking
+            // Session Data Gathering
             const sessionStartMs = parseInt(sessionStorage.getItem('ti_session_start')) || now.getTime();
             const durationMs = now.getTime() - sessionStartMs;
             const diffHours = Math.floor(durationMs / 3600000);
             const diffMins = Math.floor((durationMs % 3600000) / 60000);
-            const durationStr = `${diffHours} hrs ${diffMins} mins`;
+            const durationStr = `${diffHours}h ${diffMins}m`;
 
             const txCount = parseInt(sessionStorage.getItem('ti_tx_count') || '0');
             const poCount = parseInt(sessionStorage.getItem('ti_po_count') || '0');
@@ -425,19 +477,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 .sort((a, b) => b.sessionSold - a.sessionSold)
                 .slice(0, 5);
 
-            let r = `Daily Business Performance Report\n\n`;
-            r += `Date: ${now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}\n`;
-            r += `Business: Taruchhaya Enterprise\n`;
-            r += `Generated At: ${now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}\n\n`;
+            // --- PROFESSIONAL REPORT GENERATION ---
+            let r = `====================================================\n`;
+            r += `       🌳 TARUCHHAYA ENTERPRISE - BUSINESS REPORT\n`;
+            r += `====================================================\n\n`;
+            
+            r += `📅 PERIOD: ${dateStr}\n`;
+            r += `⏰ GENERATED: ${timeStr}\n`;
+            r += `⏱️ SESSION DURATION: ${durationStr}\n\n`;
 
-            r += `🧾 Sales Summary\n`;
-            r += `Total Transactions: ${txCount}\n`;
-            r += `Total Items Sold: ${totalItemsSold}\n`;
-            r += `Total Revenue: ₹${totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n\n`;
+            r += `----------------------------------------------------\n`;
+            r += `📊 FINANCIAL PERFORMANCE\n`;
+            r += `----------------------------------------------------\n`;
+            r += `Total Revenue      : ₹${totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+            r += `Total Transactions : ${txCount}\n`;
+            r += `Total Items Sold   : ${totalItemsSold}\n`;
+            r += `Average Order Value: ₹${txCount > 0 ? (totalRevenue / txCount).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '0.00'}\n\n`;
 
-            r += `📦 Inventory Movement\n`;
-            const nameWidth = 24, numWidth = 14;
-            r += `${'Item Name'.padEnd(nameWidth)}\t${'Opening'.padEnd(numWidth)}\t${'Purchased'.padEnd(numWidth)}\t${'Sold'.padEnd(numWidth)}\tClosing\n`;
+            r += `----------------------------------------------------\n`;
+            r += `📦 INVENTORY & LOGISTICS\n`;
+            r += `----------------------------------------------------\n`;
+            r += `New Purchase Orders: ${poCount}\n`;
+            r += `Expenditure on POs : ₹${poValue.toLocaleString('en-IN')}\n\n`;
+
+            r += `ITEMIZED MOVEMENT:\n`;
+            const nameW = 22, dataW = 10;
+            r += `${'Item Name'.padEnd(nameW)} | ${'Open'.padEnd(dataW)} | ${'In'.padEnd(dataW)} | ${'Out'.padEnd(dataW)} | Close\n`;
+            r += `${'-'.repeat(nameW)}-+-${'-'.repeat(dataW)}-+-${'-'.repeat(dataW)}-+-${'-'.repeat(dataW)}-+------\n`;
 
             inventory.forEach(item => {
                 const sold = item.sessionSold || 0;
@@ -445,48 +511,55 @@ document.addEventListener('DOMContentLoaded', () => {
                 const closing = item.stock;
                 const opening = closing + sold - purchased;
 
-                const name = item.name.substring(0, nameWidth - 2).padEnd(nameWidth);
-                r += `${name}\t${String(opening).padEnd(numWidth)}\t${String(purchased).padEnd(numWidth)}\t${String(sold).padEnd(numWidth)}\t${closing}\n`;
+                const name = (item.name.length > (nameW-3) ? item.name.substring(0, nameW-3) + '..' : item.name).padEnd(nameW);
+                r += `${name} | ${String(opening).padEnd(dataW)} | ${String(purchased).padEnd(dataW)} | ${String(sold).padEnd(dataW)} | ${closing}\n`;
             });
             r += `\n`;
 
-            r += `🔄 Purchase Order Analytics\n`;
-            r += `Total POs Issued: ${poCount}\n`;
-            r += `Total PO Value: ₹${poValue.toLocaleString('en-IN')}\n\n`;
-
-            r += `📈 Best Selling Categories\n`;
+            r += `----------------------------------------------------\n`;
+            r += `📈 SALES ANALYTICS (TOP SELLERS)\n`;
+            r += `----------------------------------------------------\n`;
             if (topSellers.length > 0) {
-                topSellers.forEach(item => r += `${item.name} → ${item.sessionSold} units\n`);
+                topSellers.forEach((item, idx) => {
+                    r += `${idx + 1}. ${item.name} (${item.sessionSold} units sold)\n`;
+                });
             } else {
-                r += `   No sales recorded this session.\n`;
+                r += `No sales activity recorded in this session.\n`;
             }
             r += `\n`;
 
             const restocked = inventory.filter(i => i.restockCount > 0);
             if (restocked.length > 0) {
-                r += `📋 Operational Log (Restocks)\n`;
+                r += `----------------------------------------------------\n`;
+                r += `📋 OPERATIONAL LOG (RESTOCKS)\n`;
+                r += `----------------------------------------------------\n`;
                 restocked.forEach(item => {
                     const t = new Date(item.lastRestockTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-                    r += `${item.name} (${item.restockCount} times) @ ${t}\n`;
+                    r += `✅ ${item.name} restocked ${item.restockCount}x (Last: ${t})\n`;
                 });
                 r += `\n`;
             }
 
-            r += `🔐 Session Metadata\n`;
-            r += `Duration: ${durationStr}\n`;
-            r += `Status: Verified\n\n`;
-            r += `✅ End of Generated Report\n`;
+            r += `====================================================\n`;
+            r += `        END OF ELECTRONICALLY GENERATED REPORT\n`;
+            r += `            Verified by Taruchhaya Systems\n`;
+            r += `====================================================\n`;
 
-            // -- Upload to Drive --
+            // --- ROBUST UPLOAD TO DRIVE ---
+            if (!silent) showToast('Uploading report to Google Drive...', 'info');
+
             const boundary = '-------taruchhayareport2026';
-            const delimiter = `--${boundary}\r\n`; // Modified: removed leading \r\n for first part
-            const close_delim = `\r\n--${boundary}--`;
             const metadata = { name: reportFileName, mimeType: 'text/plain' };
 
-            const multipartBody =
-                delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata) +
-                '\r\n' + delimiter + 'Content-Type: text/plain; charset=utf-8\r\n\r\n' + r +
-                close_delim;
+            // Construction of multipart/related body with strict newline compliance
+            const multipartBody = 
+                `--${boundary}\r\n` +
+                `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+                JSON.stringify(metadata) + `\r\n` +
+                `--${boundary}\r\n` +
+                `Content-Type: text/plain; charset=utf-8\r\n\r\n` +
+                r + `\r\n` +
+                `--${boundary}--`;
 
             const response = await gapi.client.request({
                 path: 'https://www.googleapis.com/upload/drive/v3/files',
@@ -497,20 +570,23 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             if (response.status >= 200 && response.status < 300) {
-                if (!silent) showToast('✅ Report successfully uploaded to Google Drive!', 'success');
+                if (!silent) showToast('✅ Report uploaded successfully!', 'success');
                 return true;
             } else {
-                throw new Error(`Cloud error: ${response.status}`);
+                throw new Error(`Cloud rejection: Status ${response.status}`);
             }
         } catch (err) {
-            console.error('Report upload failed:', err);
-            let errMsg = err.message || (err.result && err.result.error ? err.result.error.message : JSON.stringify(err));
+            console.error('Unified Error Log:', err);
+            let errMsg = "An unexpected error occurred.";
+            
+            if (err.result && err.result.error) errMsg = err.result.error.message;
+            else if (err.message) errMsg = err.message;
             
             if (!silent) {
-                if (errMsg.toLowerCase().includes('origin') || errMsg.toLowerCase().includes('unauthorized') || err.status === 401 || err.status === 403) {
-                    showToast(`Security Error: Ensure '${window.location.origin}' is added to 'Authorized JavaScript Origins' in your Google Console. Then Disconnect & Connect again.`, "warning");
+                if (errMsg.toLowerCase().includes('origin') || errMsg.toLowerCase().includes('unauthorized') || err.status === 401) {
+                    showToast(`Access Denied: Please disconnect and reconnect Google Drive in Settings.`, "warning");
                 } else {
-                    showToast('Failed to upload report: ' + errMsg, 'error');
+                    showToast('Report Upload Failed: ' + errMsg, 'error');
                 }
             }
             return false;
@@ -527,14 +603,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (headerReportBtn) headerReportBtn.addEventListener('click', (e) => { e.preventDefault(); generateAndUploadReport(); });
 
     async function processLogout(e) {
-        e.preventDefault();
+        if (e) e.preventDefault();
 
-        customConfirm('Logout Confirmation', 'Are you sure you want to end your session? Your local data will be cleared for security.', () => {
-            // Wipe local session + data — next login starts completely fresh
+        customConfirm('Logout Confirmation', 'Are you sure you want to end your session? Your session analytics will be reset, but your inventory list will be preserved.', () => {
+            // Reset daily/session numbers before leaving
+            resetSessionAnalytics();
+            
+            // Wipe session tokens — next login starts fresh session
             sessionStorage.removeItem('ti_session');
+            sessionStorage.removeItem('ti_session_start');
+            sessionStorage.removeItem('ti_session_active');
             localStorage.removeItem('ti_session');
-            localStorage.removeItem('taruchhaya_inventory');
-            localStorage.removeItem('taruchhaya_revenue');
+            
             window.location.href = 'login.html';
         });
     }
@@ -1373,41 +1453,37 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             } else {
                 const metadata = { name: 'taruchhaya_v1_backup.json', mimeType: 'application/json' };
-                const boundary = '-------314159265358979323846';
-                const delimiter = `--${boundary}\r\n`; // No leading \r\n
-                const close_delim = `\r\n--${boundary}--`;
-
+                const boundary = '-------taruchhayabackup2026';
+                
                 const multipartRequestBody =
-                    delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata) +
-                    '\r\n' + delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + fileContent +
-                    close_delim;
+                    `--${boundary}\r\n` +
+                    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+                    JSON.stringify(metadata) + `\r\n` +
+                    `--${boundary}\r\n` +
+                    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+                    fileContent + `\r\n` +
+                    `--${boundary}--`;
 
                 await gapi.client.request({
-                    'path': 'https://www.googleapis.com/upload/drive/v3/files',
-                    'method': 'POST',
-                    'params': { 'uploadType': 'multipart' },
-                    'headers': { 'Content-Type': 'multipart/related; boundary="' + boundary + '"' },
-                    'body': multipartRequestBody
+                    path: 'https://www.googleapis.com/upload/drive/v3/files',
+                    method: 'POST',
+                    params: { uploadType: 'multipart' },
+                    headers: { 'Content-Type': `multipart/related; boundary="${boundary}"` },
+                    body: multipartRequestBody
                 });
             }
             localStorage.setItem('taruchhaya_last_sync', new Date().toISOString());
             updateDriveUI(true);
-            if (!silent) showToast("✅ Synced to Google Drive!", "success");
+            if (!silent) showToast("✅ Cloud sync successfully completed!", "success");
         } catch (err) {
-            console.error("Sync Error Details:", err);
-            
-            let errMsg = err.message || "Unknown error";
-            
-            // Handle structured GAPI errors
-            if (err.result && err.result.error) {
-                errMsg = err.result.error.message;
-            } else if (typeof err === 'string') {
-                errMsg = err;
-            }
+            console.error("Cloud Sync Error:", err);
+            let errMsg = "Unknown synchronization error.";
+            if (err.result && err.result.error) errMsg = err.result.error.message;
+            else if (err.message) errMsg = err.message;
 
             if (!silent) {
-                if (errMsg.toLowerCase().includes('origin') || errMsg.toLowerCase().includes('unauthorized') || err.status === 401 || err.status === 403) {
-                    showToast(`Security Error: Ensure '${window.location.origin}' is added to 'Authorized JavaScript Origins' in Google Console. Then Disconnect & Connect again.`, "warning");
+                if (errMsg.toLowerCase().includes('origin') || errMsg.toLowerCase().includes('unauthorized') || err.status === 401) {
+                    showToast(`Access Denied: Reconnect Drive in Settings.`, "warning");
                 } else {
                     showToast("Sync failed: " + errMsg, "error");
                 }
