@@ -320,6 +320,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
+     * Resets total revenue to zero.
+     */
+    function resetRevenue() {
+        totalRevenue = 0;
+        localStorage.setItem('taruchhaya_revenue', totalRevenue);
+        idbSet('taruchhaya_revenue', totalRevenue).catch(err => console.error("IDB Save Error", err));
+        updateDashboard();
+    }
+
+    /**
      * Resets session-specific analytics (counters for the current day/session)
      * without deleting the actual inventory products or overall stock.
      */
@@ -338,9 +348,7 @@ document.addEventListener('DOMContentLoaded', () => {
         sessionStorage.setItem('ti_po_count', '0');
         sessionStorage.setItem('ti_po_value', '0');
         
-        // We do NOT reset totalRevenue or inventory stock here, 
-        // as those are lifetime/persistent assets.
-        
+        // Push changes to storage
         saveInventory();
     }
 
@@ -570,7 +578,18 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             if (response.status >= 200 && response.status < 300) {
-                if (!silent) showToast('✅ Report uploaded successfully!', 'success');
+                if (!silent) {
+                    showToast('✅ Report uploaded! Resetting revenue for the new day.', 'success');
+                    
+                    // Automatically clear revenue and session analytics for the next business day
+                    resetRevenue();
+                    resetSessionAnalytics();
+                    
+                    // Provide a slight delay for UI feedback
+                    setTimeout(() => {
+                        showToast('Business day reset successfully. Start fresh!', 'info');
+                    }, 1500);
+                }
                 return true;
             } else {
                 throw new Error(`Cloud rejection: Status ${response.status}`);
