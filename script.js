@@ -1,7 +1,7 @@
 // Nova AI - Next-Gen Business Management Logic (Functional System)
 
 /* --- Google Drive Global Initialization --- */
-const DEFAULT_CLIENT_ID = '399513000518-t3s3eavi8oh7ejlp5n94lpjev7u1tds7.apps.googleusercontent.com';
+const DEFAULT_CLIENT_ID = '399513000518-8b1o4jm1jsq6oppu6kae46q4trnv4u6s.apps.googleusercontent.com';
 let GOOGLE_CLIENT_ID = localStorage.getItem('taruchhaya_drive_client_id') || DEFAULT_CLIENT_ID;
 const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
 const SCOPES = 'https://www.googleapis.com/auth/drive.file';
@@ -26,6 +26,10 @@ window.gapiLoaded = function () {
 
 window.gisLoaded = function () {
     console.log("GIS script loaded");
+    initTokenClient();
+};
+
+function initTokenClient() {
     try {
         tokenClient = google.accounts.oauth2.initTokenClient({
             client_id: GOOGLE_CLIENT_ID,
@@ -33,12 +37,12 @@ window.gisLoaded = function () {
             callback: '', // assigned in click handler
         });
         gisInited = true;
-        console.log("GIS Token Client initialized");
+        console.log("GIS Token Client initialized with ID:", GOOGLE_CLIENT_ID);
         if (window.checkBeforeStart) window.checkBeforeStart();
     } catch (e) {
         console.error("GIS Init error:", e);
     }
-};
+}
 
 window.checkBeforeStart = function () {
     if (gapiInited && gisInited) {
@@ -78,6 +82,7 @@ window.checkBeforeStart = function () {
                 }
                 resp.expires_at = Date.now() + (resp.expires_in * 1000);
                 localStorage.setItem('google_drive_token', JSON.stringify(resp));
+                gapi.client.setToken(resp); // <--- ENSURE TOKEN IS SET IN GAPI
                 if (window.updateDriveUI) window.updateDriveUI(true);
                 console.log("Drive token silently refreshed.");
             };
@@ -222,6 +227,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let totalRevenue = 0;
 
     async function initializeData() {
+        // Populate Client ID input in settings
+        const driveClientIdInput = document.getElementById('driveClientIdInput');
+        if (driveClientIdInput) driveClientIdInput.value = GOOGLE_CLIENT_ID;
+
         try {
             const idbInv = await idbGet('taruchhaya_inventory');
             const idbRev = await idbGet('taruchhaya_revenue');
@@ -311,7 +320,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Report Generation Logic ---
     async function generateAndUploadReport(silent = false) {
-        if (typeof gapi === 'undefined' || !gapi.client || gapi.client.getToken() === null) {
+        if (typeof gapi === 'undefined' || !gapi.client) {
+            showToast('Google Drive API not ready. Please refresh.', 'error');
+            return;
+        }
+
+        // --- PRE-UPLOAD TOKEN VALIDATION/REFRESH ---
+        const savedToken = localStorage.getItem('google_drive_token');
+        if (savedToken) {
+            try {
+                const token = JSON.parse(savedToken);
+                if (Date.now() >= token.expires_at) {
+                    if (!silent) showToast('Session expired. Refreshing Drive connection...', 'info');
+                    await new Promise((resolve, reject) => {
+                        tokenClient.callback = (resp) => {
+                            if (resp.error) {
+                                localStorage.removeItem('taruchhaya_drive_connected');
+                                reject(resp);
+                            } else {
+                                resp.expires_at = Date.now() + (resp.expires_in * 1000);
+                                localStorage.setItem('google_drive_token', JSON.stringify(resp));
+                                gapi.client.setToken(resp);
+                                resolve();
+                            }
+                        };
+                        tokenClient.requestAccessToken({ prompt: '' });
+                    });
+                } else {
+                    gapi.client.setToken(token);
+                }
+            } catch (e) {
+                showToast('Please connect Google Drive in Settings!', 'warning');
+                return;
+            }
+        }
+
+        if (gapi.client.getToken() === null) {
             showToast('Please connect Google Drive in Settings first!', 'warning');
             return;
         }
@@ -401,16 +445,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // -- Upload to Drive --
             const boundary = '-------taruchhayareport2026';
-            const delimiter = `\r\n--${boundary}\r\n`;
+            const delimiter = `--${boundary}\r\n`; // Modified: removed leading \r\n for first part
             const close_delim = `\r\n--${boundary}--`;
             const metadata = { name: reportFileName, mimeType: 'text/plain' };
 
             const multipartBody =
-                delimiter + 'Content-Type: application/json\r\n\r\n' + JSON.stringify(metadata) +
-                delimiter + 'Content-Type: text/plain; charset=utf-8\r\n\r\n' + r +
+                delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata) +
+                '\r\n' + delimiter + 'Content-Type: text/plain; charset=utf-8\r\n\r\n' + r +
                 close_delim;
 
-            await gapi.client.request({
+            const response = await gapi.client.request({
                 path: '/upload/drive/v3/files',
                 method: 'POST',
                 params: { uploadType: 'multipart' },
@@ -418,8 +462,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: multipartBody
             });
 
-            if (!silent) showToast('✅ Report successfully uploaded to Google Drive!', 'success');
-            return true;
+            if (response.status >= 200 && response.status < 300) {
+                if (!silent) showToast('✅ Report successfully uploaded to Google Drive!', 'success');
+                return true;
+            } else {
+                throw new Error(`Cloud error: ${response.status}`);
+            }
         } catch (err) {
             console.error('Report upload failed:', err);
             if (!silent) showToast('Failed to upload report to Drive.', 'error');
@@ -438,9 +486,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function processLogout(e) {
         e.preventDefault();
-        
+
         customConfirm('Logout Confirmation', 'Are you sure you want to end your session? Your local data will be cleared for security.', () => {
-             // Wipe local session + data — next login starts completely fresh
+            // Wipe local session + data — next login starts completely fresh
             sessionStorage.removeItem('ti_session');
             localStorage.removeItem('ti_session');
             localStorage.removeItem('taruchhaya_inventory');
@@ -1223,6 +1271,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (resp.error !== undefined) throw (resp);
                 resp.expires_at = Date.now() + (resp.expires_in * 1000);
                 localStorage.setItem('google_drive_token', JSON.stringify(resp));
+                gapi.client.setToken(resp); // <--- ENSURE TOKEN IS SET IN GAPI
                 // ✅ Mark as persistently connected so we auto-reconnect on next load
                 localStorage.setItem('taruchhaya_drive_connected', 'true');
                 updateDriveUI(true);
@@ -1283,12 +1332,12 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 const metadata = { name: 'taruchhaya_v1_backup.json', mimeType: 'application/json' };
                 const boundary = '-------314159265358979323846';
-                const delimiter = "\r\n--" + boundary + "\r\n";
-                const close_delim = "\r\n--" + boundary + "--";
+                const delimiter = `--${boundary}\r\n`; // No leading \r\n
+                const close_delim = `\r\n--${boundary}--`;
 
                 const multipartRequestBody =
-                    delimiter + 'Content-Type: application/json\r\n\r\n' + JSON.stringify(metadata) +
-                    delimiter + 'Content-Type: application/json\r\n\r\n' + fileContent +
+                    delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata) +
+                    '\r\n' + delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + fileContent +
                     close_delim;
 
                 await gapi.client.request({
@@ -1346,6 +1395,32 @@ document.addEventListener('DOMContentLoaded', () => {
     const drivePullBtn = document.getElementById('drivePullBtn');
     if (drivePushBtn) drivePushBtn.addEventListener('click', () => syncToDrive(false));
     if (drivePullBtn) drivePullBtn.addEventListener('click', pullFromDrive);
+
+    // --- Google Client ID Update Logic ---
+    const driveClientIdInput = document.getElementById('driveClientIdInput');
+    const saveClientIdBtn = document.getElementById('saveClientIdBtn');
+    const resetClientIdBtn = document.getElementById('resetClientIdBtn');
+
+    if (saveClientIdBtn && driveClientIdInput) {
+        saveClientIdBtn.addEventListener('click', () => {
+            const newId = driveClientIdInput.value.trim();
+            if (!newId) return;
+            GOOGLE_CLIENT_ID = newId;
+            localStorage.setItem('taruchhaya_drive_client_id', newId);
+            initTokenClient();
+            showToast("Google Client ID updated! Please try connecting again.", "success");
+        });
+    }
+
+    if (resetClientIdBtn && driveClientIdInput) {
+        resetClientIdBtn.addEventListener('click', () => {
+            GOOGLE_CLIENT_ID = DEFAULT_CLIENT_ID;
+            localStorage.removeItem('taruchhaya_drive_client_id');
+            driveClientIdInput.value = DEFAULT_CLIENT_ID;
+            initTokenClient();
+            showToast("Client ID reset to system default.", "info");
+        });
+    }
 
     // --- Auto-Sync to Drive (debounced, fires 3s after any data change) ---
     let autoSyncTimer = null;
