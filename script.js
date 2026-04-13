@@ -504,7 +504,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (err) {
             console.error('Report upload failed:', err);
-            if (!silent) showToast('Failed to upload report to Drive.', 'error');
+            let errMsg = err.message || (err.result && err.result.error ? err.result.error.message : JSON.stringify(err));
+            
+            if (!silent) {
+                if (errMsg.toLowerCase().includes('origin') || errMsg.toLowerCase().includes('unauthorized') || err.status === 401 || err.status === 403) {
+                    showToast("Security Link Interrupted: Please 'Disconnect' and 'Connect' Drive again in Settings.", "warning");
+                } else {
+                    showToast('Failed to upload report: ' + errMsg, 'error');
+                }
+            }
             return false;
         }
     }
