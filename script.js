@@ -247,6 +247,13 @@ async function idbSet(key, value) {
 }
 
 /* --- 🚀 Core Application Controller --- */
+(function authGuard() {
+    const session = sessionStorage.getItem('ti_session') || localStorage.getItem('ti_session');
+    if (!session && !window.location.href.includes('login.html')) {
+        window.location.replace('login.html');
+    }
+})();
+
 document.addEventListener('DOMContentLoaded', () => {
 
     if (!sessionStorage.getItem('ti_session_start')) {
