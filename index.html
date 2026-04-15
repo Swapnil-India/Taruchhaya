@@ -132,6 +132,20 @@
                     </div>
                 </div>
 
+                <!-- Google Drive Connection Alert -->
+                <div id="driveConnectionAlert" class="drive-error-banner" style="display: none;">
+                    <div class="banner-content">
+                        <div class="banner-icon"><i class="ph-fill ph-warning-circle"></i></div>
+                        <div class="banner-text">
+                            <h4>Google Drive Disconnected</h4>
+                            <p>Automatic cloud sync is disabled. Your data is only saved locally.</p>
+                        </div>
+                    </div>
+                    <button class="secondary-btn" onclick="document.querySelector('[data-view=\'settings\']').click()">
+                        Reconnect Now
+                    </button>
+                </div>
+
                 <div class="metrics-grid">
                     <div class="metric-card">
                         <div class="metric-header">

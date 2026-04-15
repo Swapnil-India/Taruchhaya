@@ -113,6 +113,9 @@ window.checkBeforeStart = function () {
             };
             // prompt: '' means no account chooser / no consent screen
             tokenClient.requestAccessToken({ prompt: '' });
+        } else {
+            // Not persistently connected — show alert banner
+            if (window.updateDriveUI) window.updateDriveUI(false);
         }
     }
 };
@@ -1382,10 +1385,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const driveDisconnectedUI = document.getElementById('driveDisconnectedUI');
         const driveStatusBadge = document.getElementById('driveStatusBadge');
         const driveLastSync = document.getElementById('driveLastSync');
+        const driveConnectionAlert = document.getElementById('driveConnectionAlert');
 
         if (isConnected) {
             if (driveConnectedUI) driveConnectedUI.style.display = 'block';
             if (driveDisconnectedUI) driveDisconnectedUI.style.display = 'none';
+            if (driveConnectionAlert) driveConnectionAlert.style.display = 'none';
             if (driveStatusBadge) {
                 driveStatusBadge.innerHTML = '<i class="ph-fill ph-circle" style="color: #34A853;"></i> Connected';
                 driveStatusBadge.style.color = '#34A853';
@@ -1396,6 +1401,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             if (driveConnectedUI) driveConnectedUI.style.display = 'none';
             if (driveDisconnectedUI) driveDisconnectedUI.style.display = 'block';
+            if (driveConnectionAlert) driveConnectionAlert.style.display = 'flex';
             if (driveStatusBadge) {
                 driveStatusBadge.innerHTML = '<i class="ph ph-circle"></i> Not Connected';
                 driveStatusBadge.style.color = 'var(--text-tertiary)';
