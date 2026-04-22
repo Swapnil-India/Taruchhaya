@@ -1028,29 +1028,84 @@ document.addEventListener('DOMContentLoaded', () => {
         addProductToCart(product);
     });
 
+    /**
+     * Centralized Barcode Handler
+     * Implements logic: 0 stock -> Restock Modal, >0 stock -> POS Modal
+     */
+    function handleBarcode(code) {
+        if (!code) return;
+        const product = inventory.find(p => p.barcode === code || p.id === code);
+
+        if (product) {
+            if (product.stock === 0) {
+                // Feature (a): Quantity is 0 -> Restock option
+                showToast(`Product ${product.name} is out of stock. Opening restock...`, "info");
+                // If POS modal is open, close it first
+                closeModal(posModal);
+                window.openRestockModal(product.id);
+            } else {
+                // Feature (b): Quantity > 0 -> Quick Bill option
+                if (!posModal.classList.contains('open')) {
+                    // Open POS if not open
+                    currentCart = []; // New scan from outside starts fresh cart? 
+                    // Actually, if it's "wherever scanned", maybe they want to add to existing?
+                    // Let's check status. If it was closed, we assume new or resume.
+                    // For now, let's just open it.
+                    openModal(posModal);
+                    renderCart();
+                }
+                addProductToCart(product);
+                showToast(`Added ${product.name} to bill.`, "success");
+            }
+        } else {
+            showToast("Barcode not found in inventory!", "warning");
+        }
+    }
+
     const posBarcodeInput = document.getElementById('posBarcodeInput');
     if (posBarcodeInput) {
         posBarcodeInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 const code = posBarcodeInput.value.trim();
-                if (!code) return;
-
-                const product = inventory.find(p => p.barcode === code || p.id === code);
-
-                if (product) {
-                    if (product.stock > 0) {
-                        addProductToCart(product);
-                        posBarcodeInput.value = ''; // clear for next scan
-                    } else {
-                        showToast("Product is out of stock!", "error");
-                    }
-                } else {
-                    showToast("Barcode not found in inventory!", "warning");
-                }
+                handleBarcode(code);
+                posBarcodeInput.value = ''; // clear for next scan
             }
         });
     }
+
+    // --- Global Keyboard Barcode Listener ---
+    // Physical scanners act like rapid keyboards ending with 'Enter'
+    let barcodeBuffer = "";
+    let lastKeyTime = Date.now();
+
+    document.addEventListener('keydown', (e) => {
+        // Ignore if typing in an input (except the POS input which has its own listener)
+        const target = e.target;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.contentEditable === "true") {
+            // Exceptions: we still want to capture if it's the specific barcode input
+            if (target.id !== 'posBarcodeInput') return;
+        }
+
+        const currentTime = Date.now();
+        
+        // Barcode scanners are fast (usually < 50ms between keys)
+        if (currentTime - lastKeyTime > 100) {
+            barcodeBuffer = ""; // Reset if it's too slow (likely human typing)
+        }
+
+        if (e.key === 'Enter') {
+            if (barcodeBuffer.length > 2) {
+                handleBarcode(barcodeBuffer);
+                barcodeBuffer = "";
+                e.preventDefault();
+            }
+        } else if (e.key.length === 1) {
+            barcodeBuffer += e.key;
+        }
+        
+        lastKeyTime = currentTime;
+    });
 
     function addProductToCart(product) {
         const existingCartItem = currentCart.find(c => c.product.id === product.id);
@@ -1266,7 +1321,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     cameraButtons.forEach(btn => {
         btn.addEventListener('click', async () => {
-            const targetInputId = btn.getAttribute('data-target');
+            let targetInputId = btn.getAttribute('data-target');
+            
+            // If global scan button is clicked from header, we actually want to open POS modal 
+            // and use its scanner, or just handle it globally.
+            if (targetInputId === 'globalScan') {
+                if (!posModal.classList.contains('open')) {
+                    openModal(posModal);
+                }
+                targetInputId = 'posBarcodeInput'; // Divert to POS scanner
+            }
+
             const readerId = targetInputId === 'posBarcodeInput' ? 'reader-pos' : (targetInputId === 'prodBarcode' ? 'reader-add' : 'reader-edit');
             const fallbackId = targetInputId === 'posBarcodeInput' ? 'fallback-pos' : (targetInputId === 'prodBarcode' ? 'fallback-add' : 'fallback-edit');
             const readerContainer = document.getElementById(readerId);
@@ -1314,10 +1379,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     config,
                     (decodedText) => {
                         const targetInput = document.getElementById(targetInputId);
-                        targetInput.value = decodedText;
+                        if (targetInput) targetInput.value = decodedText;
+                        
                         if (targetInputId === 'posBarcodeInput') {
-                            const event = new KeyboardEvent('keypress', { key: 'Enter' });
-                            targetInput.dispatchEvent(event);
+                            handleBarcode(decodedText);
+                        } else {
+                            showToast("Scanned: " + decodedText, "success");
                         }
                         stopCamera();
                     },
@@ -1350,11 +1417,10 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const decodedText = await tempReader.scanFile(file, true);
                 const targetInput = document.getElementById(targetInputId);
-                targetInput.value = decodedText;
+                if (targetInput) targetInput.value = decodedText;
 
-                if (targetInputId === 'posBarcodeInput') {
-                    const event = new KeyboardEvent('keypress', { key: 'Enter' });
-                    targetInput.dispatchEvent(event);
+                if (targetInputId === 'posBarcodeInput' || targetInputId === 'globalScan') {
+                    handleBarcode(decodedText);
                 }
 
                 showToast("Successfully scanned: " + decodedText, "success");
