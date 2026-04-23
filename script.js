@@ -1083,14 +1083,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let lastKeyTime = Date.now();
 
     document.addEventListener('keydown', (e) => {
-        // Ignore if typing in an input (except the POS input which has its own listener)
-        const target = e.target;
-        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.contentEditable === "true") {
-            // Exceptions: we still want to capture if it's the specific barcode input
-            if (target.id !== 'posBarcodeInput') return;
-        }
-
         const currentTime = Date.now();
+        const target = e.target;
         
         // Barcode scanners are fast (usually < 50ms between keys)
         if (currentTime - lastKeyTime > 100) {
@@ -1099,15 +1093,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (e.key === 'Enter') {
             if (barcodeBuffer.length > 2) {
-                handleBarcode(barcodeBuffer);
-                barcodeBuffer = "";
                 e.preventDefault();
+                const code = barcodeBuffer;
+                barcodeBuffer = "";
+
+                // Fix: If focus is in a non-barcode input (like quantity), clear it
+                if (target.tagName === 'INPUT' && !['posBarcodeInput', 'prodBarcode', 'editProdBarcode', 'globalSearch'].includes(target.id)) {
+                    target.value = "";
+                    target.blur();
+                }
+
+                // If focus is already in the dedicated POS input, its own listener handles it
+                if (target.id !== 'posBarcodeInput') {
+                    handleBarcode(code);
+                }
+                return;
             }
         } else if (e.key.length === 1) {
             barcodeBuffer += e.key;
         }
         
         lastKeyTime = currentTime;
+
+        // Ignore global logic for normal typing in inputs
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.contentEditable === "true") {
+            return;
+        }
     });
 
     function addProductToCart(product) {
@@ -1440,6 +1451,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const originalCloseModal = closeModal;
     window.closeModal = function (modal) {
         stopCamera();
+        // Force blur to prevent physical scanners from typing into hidden inputs
+        if (document.activeElement && modal && modal.contains(document.activeElement)) {
+            document.activeElement.blur();
+        }
         originalCloseModal(modal);
     };
 
