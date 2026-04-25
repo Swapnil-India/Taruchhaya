@@ -31,6 +31,7 @@ let gapiInited = false;
 let gisInited = false;
 let inventory = [];
 let totalRevenue = 0;
+let onlineRevenue = 0;
 let analyticsChartObj = null;
 
 /* --- 🛡️ Google Drive API Lifecycle --- */
@@ -271,17 +272,21 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const idbInv = await idbGet('taruchhaya_inventory');
             const idbRev = await idbGet('taruchhaya_revenue');
+            const idbOnlineRev = await idbGet('taruchhaya_online_revenue');
 
             if (idbInv && Array.isArray(idbInv)) {
                 inventory = idbInv;
                 totalRevenue = idbRev || 0;
+                onlineRevenue = idbOnlineRev || 0;
             } else {
                 // Fallback / Migrate from LocalStorage to IndexedDB
                 inventory = JSON.parse(localStorage.getItem('taruchhaya_inventory')) || [];
                 totalRevenue = parseFloat(localStorage.getItem('taruchhaya_revenue')) || 0;
+                onlineRevenue = parseFloat(localStorage.getItem('taruchhaya_online_revenue')) || 0;
 
                 await idbSet('taruchhaya_inventory', inventory);
                 await idbSet('taruchhaya_revenue', totalRevenue);
+                await idbSet('taruchhaya_online_revenue', onlineRevenue);
             }
         } catch (err) {
             console.error("IndexedDB Initialization Error:", err);
@@ -314,10 +319,16 @@ document.addEventListener('DOMContentLoaded', () => {
         scheduleDriveAutoSync();
     }
 
-    function saveRevenue(amount) {
+    function saveRevenue(amount, isOnline = false) {
         totalRevenue += amount;
+        if (isOnline) onlineRevenue += amount;
+
         localStorage.setItem('taruchhaya_revenue', totalRevenue);
+        localStorage.setItem('taruchhaya_online_revenue', onlineRevenue);
+
         idbSet('taruchhaya_revenue', totalRevenue).catch(err => console.error("IDB Save Error", err));
+        idbSet('taruchhaya_online_revenue', onlineRevenue).catch(err => console.error("IDB Save Error", err));
+        
         updateDashboard();
         scheduleDriveAutoSync();
     }
@@ -327,8 +338,11 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     function resetRevenue() {
         totalRevenue = 0;
+        onlineRevenue = 0;
         localStorage.setItem('taruchhaya_revenue', totalRevenue);
+        localStorage.setItem('taruchhaya_online_revenue', onlineRevenue);
         idbSet('taruchhaya_revenue', totalRevenue).catch(err => console.error("IDB Save Error", err));
+        idbSet('taruchhaya_online_revenue', onlineRevenue).catch(err => console.error("IDB Save Error", err));
         updateDashboard();
     }
 
@@ -501,6 +515,8 @@ document.addEventListener('DOMContentLoaded', () => {
             r += `📊 FINANCIAL PERFORMANCE\n`;
             r += `----------------------------------------------------\n`;
             r += `Total Revenue      : ₹${totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+            r += `Online Revenue     : ₹${onlineRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+            r += `Cash Revenue       : ₹${(totalRevenue - onlineRevenue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
             r += `Total Transactions : ${txCount}\n`;
             r += `Total Items Sold   : ${totalItemsSold}\n`;
             r += `Average Order Value: ₹${txCount > 0 ? (totalRevenue / txCount).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '0.00'}\n\n`;
@@ -1177,58 +1193,18 @@ document.addEventListener('DOMContentLoaded', () => {
         renderCart();
     };
 
-    const posPrintBtn = document.getElementById('posPrintBtn');
-    if (posPrintBtn) {
-        posPrintBtn.addEventListener('click', () => {
+    const posOnlineBtn = document.getElementById('posOnlineBtn');
+    if (posOnlineBtn) {
+        posOnlineBtn.addEventListener('click', () => {
             if (currentCart.length === 0) {
                 showToast("Cart is empty!", "info");
                 return;
             }
-            const printArea = document.getElementById('printReceiptArea');
-            let total = 0;
-
-            let html = `
-                <div style="padding: 40px; font-family: 'Inter', sans-serif; max-width: 400px; margin: 0 auto; color: black !important;">
-                    <h2 style="text-align: center; margin-bottom: 24px; font-weight: 700;">Taruchhaya Store</h2>
-                    <p style="text-align: center; font-size: 12px; margin-bottom: 24px;">Date: ${new Date().toLocaleString()}</p>
-                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
-                        <tr style="border-bottom: 1px solid #ccc;">
-                            <th style="text-align: left; padding: 8px 0;">Item</th>
-                            <th style="text-align: center; padding: 8px 0;">Qty</th>
-                            <th style="text-align: right; padding: 8px 0;">Amt</th>
-                        </tr>
-            `;
-
-            currentCart.forEach(item => {
-                const sub = item.qty * item.product.price;
-                total += sub;
-                html += `
-                        <tr>
-                            <td style="padding: 8px 0; border-bottom: 1px dashed #eee;">${item.product.name}</td>
-                            <td style="text-align: center; padding: 8px 0; border-bottom: 1px dashed #eee;">${item.qty}</td>
-                            <td style="text-align: right; padding: 8px 0; border-bottom: 1px dashed #eee;">₹${sub.toLocaleString()}</td>
-                        </tr>
-                `;
-            });
-
-            html += `
-                    </table>
-                    <h3 style="text-align: right; font-weight: 700;">Total: ₹${total.toLocaleString()}</h3>
-                    <p style="text-align: center; margin-top: 40px; font-size: 12px;">Thank you for shopping!</p>
-                </div>
-            `;
-
-            printArea.innerHTML = html;
-            window.print();
+            processCheckout(true);
         });
     }
 
-    posCheckoutBtn.addEventListener('click', () => {
-        if (currentCart.length === 0) {
-            showToast("Cart is empty!", "info");
-            return;
-        }
-
+    function processCheckout(isOnline = false) {
         // Process checkout
         let currentTotal = 0;
         currentCart.forEach(cartItem => {
@@ -1244,14 +1220,23 @@ document.addEventListener('DOMContentLoaded', () => {
         const txCount = parseInt(sessionStorage.getItem('ti_tx_count') || '0');
         sessionStorage.setItem('ti_tx_count', (txCount + 1).toString());
 
-        saveRevenue(currentTotal);
+        saveRevenue(currentTotal, isOnline);
         saveInventory();
 
         currentCart = [];
         renderCart();
         closeModal(posModal);
 
-        showToast(`Bill generated successfully for ₹${currentTotal}! Stock has been updated.`, "success");
+        const method = isOnline ? "Online Gateway" : "Cash/Generic";
+        showToast(`Bill generated successfully via ${method} for ₹${currentTotal}! Stock updated.`, "success");
+    }
+
+    posCheckoutBtn.addEventListener('click', () => {
+        if (currentCart.length === 0) {
+            showToast("Cart is empty!", "info");
+            return;
+        }
+        processCheckout(false);
     });
 
 
