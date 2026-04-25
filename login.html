@@ -63,12 +63,20 @@
 
         body {
             min-height: 100vh;
+            min-height: 100dvh;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: auto;
             position: relative;
+        }
+
+        @media (min-width: 769px) {
+            body {
+                overflow: hidden;
+            }
         }
 
         /* Animated background canvas */
@@ -179,6 +187,26 @@
             border: 1px solid var(--border-color);
             border-radius: 20px;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04);
+            transform: translateZ(0);
+        }
+
+        @media (max-width: 480px) {
+            .login-card {
+                padding: 24px;
+                backdrop-filter: blur(6px);
+                -webkit-backdrop-filter: blur(6px);
+                background: rgba(24, 24, 27, 0.85);
+            }
+
+            .login-header h1 {
+                font-size: 24px;
+            }
+
+            .login-logo {
+                width: 48px;
+                height: 48px;
+                font-size: 24px;
+            }
         }
 
         /* Tabs */
@@ -965,7 +993,7 @@
                 this.y += (this.baseY - this.y) * 0.05;
             }
             draw() {
-                if (this.size > 1.8) {
+                if (this.size > 1.8 && window.innerWidth > 768) {
                     ctx.shadowBlur = 5;
                     ctx.shadowColor = this.color + '0.6)';
                 } else {
@@ -980,7 +1008,10 @@
 
         function buildParticles() {
             particles = [];
-            const n = Math.floor((canvas.width * canvas.height) / 3800);
+            // Significantly reduce particle count on mobile for performance
+            const isMobile = window.innerWidth < 768;
+            const density = isMobile ? 8000 : 3800;
+            const n = Math.floor((canvas.width * canvas.height) / density);
             for (let i = 0; i < n; i++) particles.push(new Particle());
         }
 

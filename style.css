@@ -79,8 +79,15 @@ body {
     background-color: var(--bg-app);
     color: var(--text-primary);
     -webkit-font-smoothing: antialiased;
-    overflow: hidden;
-    /* Stop whole page scrolling, handle in main */
+    overflow-x: hidden;
+    /* Allow scrolling on mobile if main content doesn't handle it, 
+       but preserve independent scrolling for desktop layouts */
+}
+
+@media (min-width: 769px) {
+    body {
+        overflow: hidden;
+    }
 }
 
 /* Glassmorphism utility */
@@ -91,12 +98,24 @@ body {
     border: 1px solid var(--border-color);
     border-radius: 16px;
     box-shadow: var(--shadow-md);
+    /* Improve performance by hinting GPU */
+    transform: translateZ(0);
+}
+
+@media (max-width: 768px) {
+    .glass-panel {
+        /* Reduce blur for better mobile performance */
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        background: rgba(24, 24, 27, 0.85); /* More opaque background fallback */
+    }
 }
 
 /* Application Layout */
 .app-layout {
     display: flex;
     height: 100vh;
+    height: 100dvh; /* Use dynamic viewport height for mobile */
     width: 100vw;
 }
 
@@ -1494,6 +1513,34 @@ form {
         right: 16px;
         bottom: 100px;
         height: 60vh;
+    }
+
+    /* Tighter spacing for mobile */
+    .top-header {
+        padding: 0 16px;
+        height: 64px;
+    }
+
+    .welcome-text h1 {
+        font-size: 22px;
+    }
+
+    .metrics-grid {
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    .metric-card {
+        padding: 16px;
+    }
+
+    .metric-value {
+        font-size: 24px;
+    }
+
+    .chart-wrapper {
+        height: 250px;
+        padding: 12px;
     }
 }
 

@@ -393,6 +393,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 views.forEach(v => v.classList.remove('active'));
                 const targetView = document.getElementById(`view-${viewName}`);
                 if (targetView) targetView.classList.add('active');
+
+                // Close sidebar on mobile after selection
+                if (window.innerWidth <= 768 && sidebar) {
+                    sidebar.classList.remove('open');
+                }
             }
         });
     });
