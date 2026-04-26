@@ -49,11 +49,12 @@
 
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
-            <div class="sidebar-header">
+            <div class="sidebar-header" style="flex-direction: column; align-items: flex-start; height: auto; padding: 24px; gap: 4px;">
                 <div class="logo">
                     <div class="logo-icon"><i class="ph ph-sparkle"></i></div>
                     <h2>Taruchhaya</h2>
                 </div>
+                <div id="sidebarDate" style="font-size: 11px; color: var(--text-tertiary); font-weight: 500; margin-left: 4px; opacity: 0.8;"></div>
             </div>
 
             <nav class="sidebar-nav">
@@ -123,7 +124,7 @@
                     </button>
                     <a href="#" class="secondary-btn" id="headerReportBtn"
                         style="display:inline-flex; align-items:center; gap:6px; text-decoration:none; color:var(--text-primary); border-color:var(--border-color); padding: 8px 16px;">
-                        <i class="ph ph-file-text"></i> Browse Report
+                        <i class="ph ph-file-text"></i> Browse Reports
                     </a>
                     <a href="login.html" class="secondary-btn" id="headerLogoutBtn"
                         style="display:inline-flex; align-items:center; gap:6px; text-decoration:none; color:var(--accent-danger); border-color:rgba(239,68,68,0.3); padding: 8px 16px;">
@@ -197,10 +198,15 @@
                 </div>
 
                 <div class="dashboard-bisection">
-                    <div class="glass-panel" style="padding: 24px;">
-                        <h3 style="margin-bottom: 20px;">Top Selling Categories</h3>
-                        <div class="chart-wrapper">
-                            <canvas id="analyticsChart"></canvas>
+                    <div class="glass-panel" style="padding: 24px; min-height: 200px;">
+                        <h3 style="margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                            <div style="width: 32px; height: 32px; background: rgba(239, 68, 68, 0.1); color: var(--accent-danger); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                                <i class="ph-fill ph-package"></i>
+                            </div>
+                            Not Available Products
+                        </h3>
+                        <div id="outOfStockList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px;">
+                            <!-- Items populated by JS -->
                         </div>
                     </div>
                 </div>
@@ -608,7 +614,7 @@
             </div>
             <div class="modal-body" style="padding: 0;">
                 <pre id="reportViewerText"
-                    style="margin: 0; padding: 24px; font-family: 'Courier New', Courier, monospace; font-size: 13px; line-height: 1.5; background: #000; color: #10b981; overflow-x: auto; white-space: pre; border-bottom: 1px solid var(--border-color); max-height: 500px;"></pre>
+                    style="margin: 0; padding: 24px; font-family: 'Courier New', Courier, monospace; font-size: 14px; line-height: 1.6; background: var(--bg-panel-solid); color: var(--text-primary); overflow-x: auto; white-space: pre; border-bottom: 1px solid var(--border-color); max-height: 500px;"></pre>
             </div>
             <div class="modal-footer" style="padding: 16px 24px; display: flex; justify-content: flex-end; gap: 12px;">
                 <button class="secondary-btn" id="downloadFromView">Download File</button>

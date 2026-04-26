@@ -221,23 +221,52 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function pushToSupabase() {
+        if (!inventory || inventory.length === 0) return;
         try {
-            // Sync Inventory
+            // Sync Inventory using ID for stable conflict resolution
             const { error: invError } = await supabaseClient
                 .from('inventory')
                 .upsert(inventory.map(item => ({
+                    id: item.id, // Use the local unique ID
                     name: item.name,
                     barcode: item.barcode,
                     category: item.category,
                     price: item.price,
                     stock: item.stock,
                     last_updated: new Date().toISOString()
-                })), { onConflict: 'name' });
+                })), { onConflict: 'id' });
 
             if (invError) throw invError;
             console.log("Supabase: Inventory synced.");
         } catch (err) {
             console.error("Supabase Sync Error:", err);
+        }
+    }
+
+    async function deleteFromSupabase(id) {
+        try {
+            const { error } = await supabaseClient
+                .from('inventory')
+                .delete()
+                .eq('id', id);
+            if (error) throw error;
+            console.log(`Supabase: Deleted item ${id}`);
+        } catch (err) {
+            console.error("Supabase Delete Error:", err);
+        }
+    }
+
+    async function clearSupabaseInventory() {
+        try {
+            // Deleting all records (where id is not null)
+            const { error } = await supabaseClient
+                .from('inventory')
+                .delete()
+                .neq('id', '0'); 
+            if (error) throw error;
+            console.log("Supabase: Inventory cleared.");
+        } catch (err) {
+            console.error("Supabase Clear Error:", err);
         }
     }
 
@@ -316,6 +345,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     initializeData();
+    updateSidebarDate();
+
+    function updateSidebarDate() {
+        const dateEl = document.getElementById('sidebarDate');
+        if (dateEl) {
+            const now = new Date();
+            const options = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
+            dateEl.textContent = now.toLocaleDateString('en-IN', options);
+        }
+    }
 
     function saveInventory(skipCloud = false) {
         localStorage.setItem('taruchhaya_inventory', JSON.stringify(inventory));
@@ -638,49 +677,30 @@ document.addEventListener('DOMContentLoaded', () => {
         const revenueEl = document.getElementById('dashboardRevenue');
         if (revenueEl) revenueEl.textContent = `₹${totalRevenue.toLocaleString('en-IN')}`;
 
-        renderAnalytics();
+        renderOutOfStock();
     }
 
-    // --- Analytics Rendering ---
-    let analyticsChartObj = null;
-    function renderAnalytics() {
-        const canvas = document.getElementById('analyticsChart');
-        if (!canvas) return;
+    function renderOutOfStock() {
+        const container = document.getElementById('outOfStockList');
+        if (!container) return;
 
-        const catMap = {};
-        inventory.forEach(i => {
-            if (!catMap[i.category]) catMap[i.category] = 0;
-            catMap[i.category] += (i.stock * i.price);
-        });
+        const outOfStock = inventory.filter(item => item.stock <= 0);
 
-        const labels = Object.keys(catMap);
-        const data = Object.values(catMap);
+        if (outOfStock.length === 0) {
+            container.innerHTML = `<p style="grid-column: 1/-1; color: var(--text-tertiary); font-size: 13px; text-align: center; padding: 20px; background: rgba(255,255,255,0.02); border-radius: 10px; border: 1px dashed var(--border-color);">All products are currently in stock.</p>`;
+            return;
+        }
 
-        if (analyticsChartObj) analyticsChartObj.destroy();
-
-        analyticsChartObj = new Chart(canvas, {
-            type: 'doughnut',
-            data: {
-                labels: labels.length ? labels : ['No Data'],
-                datasets: [{
-                    data: data.length ? data : [1],
-                    backgroundColor: ['#6366f1', '#8b5cf6', '#d946ef', '#10b981', '#f59e0b', '#ef4444'],
-                    borderWidth: 0,
-                    hoverOffset: 10
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'right',
-                        labels: { color: '#f4f4f5', font: { family: 'Inter' } }
-                    }
-                }
-            }
-        });
+        container.innerHTML = outOfStock.map(item => `
+            <div style="background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.1); padding: 12px; border-radius: 10px; display: flex; align-items: center; gap: 10px; animation: fadeIn 0.3s ease-out;">
+                <div style="width: 8px; height: 8px; background: var(--accent-danger); border-radius: 50%; box-shadow: 0 0 8px var(--accent-danger);"></div>
+                <div style="font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${item.name}</div>
+            </div>
+        `).join('');
     }
+
+
+
 
     // --- Mobile Settings ---
     const mobileSidebarToggle = document.getElementById('mobileSidebarToggle');
@@ -744,6 +764,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.deleteProduct = function (id) {
         customConfirm('Delete Product?', 'Are you sure you want to remove this product from your inventory?', () => {
             inventory = inventory.filter(item => item.id !== id);
+            deleteFromSupabase(id); // Explicitly remove from cloud
             saveInventory();
             showToast('Product deleted successfully', 'success');
         });
@@ -856,6 +877,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 totalRevenue = 0;
                 localStorage.removeItem('taruchhaya_inventory');
                 localStorage.removeItem('taruchhaya_revenue');
+                clearSupabaseInventory(); // Clear cloud data
                 saveInventory();
                 saveRevenue(0);
 
