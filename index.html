@@ -5,21 +5,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard | Taruchhaya Inventory Management</title>
-    <meta name="description" content="Taruchhaya - The enterprise-grade inventory management and business analytics platform. Glassmorphic design, cloud sync, and real-time intelligence.">
-    <meta name="keywords" content="inventory management, POS, business analytics, warehouse, cloud sync, Google Drive integration">
+    <meta name="description"
+        content="Taruchhaya - The enterprise-grade inventory management and business analytics platform. Glassmorphic design, cloud sync, and real-time intelligence.">
+    <meta name="keywords"
+        content="inventory management, POS, business analytics, warehouse, cloud sync, Google Drive integration">
     <meta name="author" content="Taruchhaya Enterprise">
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://github.com/Swapnil-India/Taruchhaya">
     <meta property="og:title" content="Taruchhaya | Next-Gen Inventory Management">
-    <meta property="og:description" content="Experience the future of business management with local-first reliability and cloud-synced intelligence.">
+    <meta property="og:description"
+        content="Experience the future of business management with local-first reliability and cloud-synced intelligence.">
     <meta property="og:image" content="https://img.icons8.com/color/512/natural-food.png">
 
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image">
     <meta property="twitter:title" content="Taruchhaya | Next-Gen Inventory Management">
-    <meta property="twitter:description" content="Experience the future of business management with local-first reliability and cloud-synced intelligence.">
+    <meta property="twitter:description"
+        content="Experience the future of business management with local-first reliability and cloud-synced intelligence.">
 
     <!-- Favicon -->
     <link rel="icon" type="image/png" href="https://img.icons8.com/color/48/natural-food.png">
@@ -92,7 +96,8 @@
                     <span>Logout</span>
                 </a>
             </nav>
-            <div class="sidebar-footer" style="padding: 20px 24px; border-top: 1px solid var(--border-color); text-align: center;">
+            <div class="sidebar-footer"
+                style="padding: 20px 24px; border-top: 1px solid var(--border-color); text-align: center;">
                 <p style="font-size: 11px; color: var(--text-tertiary); font-weight: 500; letter-spacing: 0.3px;">
                     Developed with <span style="color: var(--accent-danger);">❤️</span> by Swapnil Sarkar.
                 </p>
@@ -112,7 +117,8 @@
                     <button class="icon-btn sidebar-toggle" id="mobileSidebarToggle">
                         <i class="ph ph-list"></i>
                     </button>
-                    <button class="icon-btn start-camera-btn" id="globalCameraBtn" data-target="globalScan" title="Scan Barcode (Global)">
+                    <button class="icon-btn start-camera-btn" id="globalCameraBtn" data-target="globalScan"
+                        title="Scan Barcode (Global)">
                         <i class="ph ph-barcode"></i>
                     </button>
                     <button class="icon-btn theme-toggle">
@@ -149,6 +155,23 @@
                     </div>
                     <button class="secondary-btn" onclick="document.querySelector('[data-view=\'settings\']').click()">
                         Reconnect Now
+                    </button>
+                </div>
+
+                <!-- ✨ Supabase Update Available Banner -->
+                <div id="supabaseUpdateBanner" class="drive-error-banner" 
+                    style="display: none; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); color: #10b981; margin-bottom: 24px; animation: slideDown 0.4s ease-out;">
+                    <div class="banner-content">
+                        <div class="banner-icon" style="background: rgba(16, 185, 129, 0.1); color: #10b981; width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                            <i class="ph-fill ph-cloud-arrow-down" style="font-size: 20px;"></i>
+                        </div>
+                        <div class="banner-text">
+                            <h4 style="color: #10b981; font-weight: 600;">Cloud Updates Available</h4>
+                            <p style="color: var(--text-secondary); font-size: 13px;">Your cloud inventory has newer records. Sync now to stay up to date?</p>
+                        </div>
+                    </div>
+                    <button class="primary-btn" id="syncSupabaseNowBtn" style="background: #10b981; padding: 10px 20px; font-size: 13px; font-weight: 600; border: none; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);">
+                        Sync Now
                     </button>
                 </div>
 
@@ -317,20 +340,30 @@
                             style="width: 100%; height: 56px; justify-content: center; background-color: #4285F4; box-shadow: 0 8px 24px rgba(66, 133, 244, 0.25); font-size: 16px; font-weight: 600; border-radius: 14px; margin-bottom: 20px;">
                             <i class="ph ph-google-logo" style="font-size: 22px;"></i> Connect My Google Drive
                         </button>
-                        <div class="developer-settings" style="border-top: 1px solid var(--border-color); padding-top: 20px;">
-                            <h4 style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Developer Configuration</h4>
+                        <div class="developer-settings"
+                            style="border-top: 1px solid var(--border-color); padding-top: 20px;">
+                            <h4
+                                style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+                                Developer Configuration</h4>
                             <div class="form-group" style="margin-bottom: 12px;">
                                 <label style="font-size: 11px; margin-bottom: 4px;">Google Client ID</label>
                                 <div style="display: flex; gap: 8px;">
-                                    <input type="text" id="driveClientIdInput" placeholder="Enter Client ID..." 
+                                    <input type="text" id="driveClientIdInput" placeholder="Enter Client ID..."
                                         style="flex: 1; padding: 8px 12px; font-size: 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-primary);">
-                                    <button class="secondary-btn" id="saveClientIdBtn" style="padding: 0 12px; font-size: 12px;">Save</button>
-                                    <button class="secondary-btn" id="resetClientIdBtn" title="Reset to default system ID" style="padding: 0 10px; font-size: 12px; border-color: transparent;"><i class="ph ph-arrow-counter-clockwise"></i></button>
+                                    <button class="secondary-btn" id="saveClientIdBtn"
+                                        style="padding: 0 12px; font-size: 12px;">Save</button>
+                                    <button class="secondary-btn" id="resetClientIdBtn"
+                                        title="Reset to default system ID"
+                                        style="padding: 0 10px; font-size: 12px; border-color: transparent;"><i
+                                            class="ph ph-arrow-counter-clockwise"></i></button>
                                 </div>
                             </div>
                             <p style="font-size: 10px; color: var(--text-tertiary); line-height: 1.5;">
-                                <i class="ph ph-info" style="vertical-align: middle;"></i> 
-                                If you see "Authorization Error: deleted_client", your ID is no longer valid. Create a new one in <a href="https://console.cloud.google.com/" target="_blank" style="color: #4285F4;">Google Console</a> and authorize <code>http://localhost:3000</code>.
+                                <i class="ph ph-info" style="vertical-align: middle;"></i>
+                                If you see "Authorization Error: deleted_client", your ID is no longer valid. Create a
+                                new one in <a href="https://console.cloud.google.com/" target="_blank"
+                                    style="color: #4285F4;">Google Console</a> and authorize
+                                <code>http://localhost:3000</code>.
                             </p>
                         </div>
                     </div>

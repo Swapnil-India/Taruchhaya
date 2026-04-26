@@ -313,7 +313,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         scheduleDriveAutoSync();
-        pullFromSupabase(true); // Silent pull on startup
+        checkForSupabaseUpdates(); // Background check for cloud updates
     }
 
     async function pushToSupabase() {
@@ -328,12 +328,38 @@ document.addEventListener('DOMContentLoaded', () => {
                     price: item.price,
                     stock: item.stock,
                     last_updated: new Date().toISOString()
-                })), { onConflict: 'name' }); 
+                })), { onConflict: 'name' });
 
             if (invError) throw invError;
             console.log("Supabase: Inventory synced.");
         } catch (err) {
             console.error("Supabase Sync Error:", err);
+        }
+    }
+
+    async function checkForSupabaseUpdates() {
+        try {
+            // Quick check: compare counts or fetch metadata
+            const { data, error } = await supabaseClient
+                .from('inventory')
+                .select('name');
+
+            if (error) throw error;
+
+            if (data && data.length > 0) {
+                // If local inventory is empty, pull silently and immediately
+                if (inventory.length === 0) {
+                    pullFromSupabase(true);
+                } 
+                // If local exists but counts differ, show the banner
+                else if (inventory.length !== data.length) {
+                    const banner = document.getElementById('supabaseUpdateBanner');
+                    if (banner) banner.style.display = 'flex';
+                }
+            }
+        } catch (err) {
+            // Silently fail update check to avoid annoying user on bad networks
+            console.warn("Could not check for cloud updates:", err);
         }
     }
 
@@ -372,6 +398,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         stock: d.stock
                     }));
                     saveInventory(true); // Save locally but don't re-push
+                    
+                    // Hide the banner if it was open
+                    const banner = document.getElementById('supabaseUpdateBanner');
+                    if (banner) banner.style.display = 'none';
+                    
                     if (!silent) showToast("Data restored from Supabase!", "success");
                 }
             }
@@ -401,7 +432,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         idbSet('taruchhaya_revenue', totalRevenue).catch(err => console.error("IDB Save Error", err));
         idbSet('taruchhaya_online_revenue', onlineRevenue).catch(err => console.error("IDB Save Error", err));
-        
+
         updateDashboard();
         scheduleDriveAutoSync();
         pushToSupabase();
@@ -426,7 +457,7 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     function resetSessionAnalytics() {
         console.log("Resetting session analytics...");
-        
+
         // Reset session-specific counters in inventory items
         inventory.forEach(item => {
             item.sessionSold = 0;
@@ -438,7 +469,7 @@ document.addEventListener('DOMContentLoaded', () => {
         sessionStorage.setItem('ti_tx_count', '0');
         sessionStorage.setItem('ti_po_count', '0');
         sessionStorage.setItem('ti_po_value', '0');
-        
+
         // Push changes to storage
         saveInventory();
     }
@@ -554,7 +585,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const now = new Date();
             const dateStr = now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
             const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-            
+
             const dd = String(now.getDate()).padStart(2, '0');
             const mm = String(now.getMonth() + 1).padStart(2, '0');
             const yyyy = now.getFullYear();
@@ -585,7 +616,7 @@ document.addEventListener('DOMContentLoaded', () => {
             let r = `====================================================\n`;
             r += `       🌳 TARUCHHAYA ENTERPRISE - BUSINESS REPORT\n`;
             r += `====================================================\n\n`;
-            
+
             r += `📅 PERIOD: ${dateStr}\n`;
             r += `⏰ GENERATED: ${timeStr}\n`;
             r += `⏱️ SESSION DURATION: ${durationStr}\n\n`;
@@ -617,7 +648,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const closing = item.stock;
                 const opening = closing + sold - purchased;
 
-                const name = (item.name.length > (nameW-3) ? item.name.substring(0, nameW-3) + '..' : item.name).padEnd(nameW);
+                const name = (item.name.length > (nameW - 3) ? item.name.substring(0, nameW - 3) + '..' : item.name).padEnd(nameW);
                 r += `${name} | ${String(opening).padEnd(dataW)} | ${String(purchased).padEnd(dataW)} | ${String(sold).padEnd(dataW)} | ${closing}\n`;
             });
             r += `\n`;
@@ -658,7 +689,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const metadata = { name: reportFileName, mimeType: 'text/plain' };
 
             // Construction of multipart/related body with strict newline compliance
-            const multipartBody = 
+            const multipartBody =
                 `--${boundary}\r\n` +
                 `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
                 JSON.stringify(metadata) + `\r\n` +
@@ -678,11 +709,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.status >= 200 && response.status < 300) {
                 if (!silent) {
                     showToast('✅ Report uploaded! Resetting revenue for the new day.', 'success');
-                    
+
                     // Automatically clear revenue and session analytics for the next business day
                     resetRevenue();
                     resetSessionAnalytics();
-                    
+
                     // Provide a slight delay for UI feedback
                     setTimeout(() => {
                         showToast('Business day reset successfully. Start fresh!', 'info');
@@ -695,10 +726,10 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             console.error('Unified Error Log:', err);
             let errMsg = "An unexpected error occurred.";
-            
+
             if (err.result && err.result.error) errMsg = err.result.error.message;
             else if (err.message) errMsg = err.message;
-            
+
             if (!silent) {
                 if (errMsg.toLowerCase().includes('origin') || errMsg.toLowerCase().includes('unauthorized') || err.status === 401) {
                     showToast(`Access Denied: Please disconnect and reconnect Google Drive in Settings.`, "warning");
@@ -725,13 +756,13 @@ document.addEventListener('DOMContentLoaded', () => {
         customConfirm('Logout Confirmation', 'Are you sure you want to end your session? Your session analytics will be reset, but your inventory list will be preserved.', () => {
             // Reset daily/session numbers before leaving
             resetSessionAnalytics();
-            
+
             // Wipe session tokens — next login starts fresh session
             sessionStorage.removeItem('ti_session');
             sessionStorage.removeItem('ti_session_start');
             sessionStorage.removeItem('ti_session_active');
             localStorage.removeItem('ti_session');
-            
+
             window.location.href = 'login.html';
         });
     }
@@ -915,7 +946,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     showToast("Quantity seems unusually high. Please verify or add in smaller batches.", "warning");
                     return;
                 }
-                
+
                 item.stock += qtyToAdd;
 
                 // Track restock history and session analytics
@@ -1186,7 +1217,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('keydown', (e) => {
         const currentTime = Date.now();
         const target = e.target;
-        
+
         // Barcode scanners are fast (usually < 50ms between keys)
         const isFastKey = (currentTime - lastKeyTime) < 50;
 
@@ -1213,14 +1244,14 @@ document.addEventListener('DOMContentLoaded', () => {
             barcodeBuffer = ""; // Reset on Enter if not enough chars
         } else if (e.key.length === 1) {
             barcodeBuffer += e.key;
-            
+
             // If it's a scanner (fast typing) and not a dedicated barcode input, 
             // prevent the character from reaching the input field.
             if (isFastKey && target.tagName === 'INPUT' && !['posBarcodeInput', 'prodBarcode', 'editProdBarcode', 'globalSearch'].includes(target.id)) {
                 e.preventDefault();
             }
         }
-        
+
         lastKeyTime = currentTime;
     });
 
@@ -1411,7 +1442,7 @@ document.addEventListener('DOMContentLoaded', () => {
     cameraButtons.forEach(btn => {
         btn.addEventListener('click', async () => {
             let targetInputId = btn.getAttribute('data-target');
-            
+
             // If global scan button is clicked from header, we actually want to open POS modal 
             // and use its scanner, or just handle it globally.
             if (targetInputId === 'globalScan') {
@@ -1469,7 +1500,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     (decodedText) => {
                         const targetInput = document.getElementById(targetInputId);
                         if (targetInput) targetInput.value = decodedText;
-                        
+
                         if (targetInputId === 'posBarcodeInput') {
                             handleBarcode(decodedText);
                         } else {
@@ -1635,7 +1666,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 const metadata = { name: 'taruchhaya_v1_backup.json', mimeType: 'application/json' };
                 const boundary = '-------taruchhayabackup2026';
-                
+
                 const multipartRequestBody =
                     `--${boundary}\r\n` +
                     `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
@@ -1702,9 +1733,9 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         } catch (err) {
             console.error("Pull Error Details:", err);
-            
+
             let errMsg = err.message || "Unknown error";
-            
+
             // Handle structured GAPI errors
             if (err.result && err.result.error) {
                 errMsg = err.result.error.message;
@@ -1795,6 +1826,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // Fallback if global handlers weren't triggered by script tags
     if (typeof gapi !== 'undefined' && gapi.load && !gapiInited) window.gapiLoaded();
     if (typeof google !== 'undefined' && google.accounts && !gisInited) window.gisLoaded();
+
+    // --- Supabase Banner Listener ---
+    const syncSupabaseNowBtn = document.getElementById('syncSupabaseNowBtn');
+    if (syncSupabaseNowBtn) {
+        syncSupabaseNowBtn.addEventListener('click', () => {
+            syncSupabaseNowBtn.innerHTML = '<i class="ph ph-circle-notch spinning"></i> Syncing...';
+            syncSupabaseNowBtn.disabled = true;
+            pullFromSupabase(false);
+        });
+    }
 
 
 });
