@@ -21,8 +21,15 @@ const CONFIG = {
     },
     ADMIN: {
         DEFAULT_PIN: '1234'
+    },
+    SUPABASE: {
+        URL: 'https://xhokskcszbmjuioeywmw.supabase.co',
+        KEY: 'sb_publishable_AqkMNs5rKGyzz8mngxY0mg_JtCTQzFy'
     }
 };
+
+/* --- ⚡ Supabase Initialization --- */
+const supabase = supabase.createClient(CONFIG.SUPABASE.URL, CONFIG.SUPABASE.KEY);
 
 /* --- 🌏 Global State --- */
 let GOOGLE_CLIENT_ID = localStorage.getItem('taruchhaya_drive_client_id') || CONFIG.DRIVE.DEFAULT_CLIENT_ID;
@@ -306,17 +313,67 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         scheduleDriveAutoSync();
+        pullFromSupabase(true); // Silent pull on startup
+    }
+
+    async function pushToSupabase() {
+        try {
+            // Sync Inventory
+            const { error: invError } = await supabase
+                .from('inventory')
+                .upsert(inventory.map(item => ({
+                    name: item.name,
+                    barcode: item.barcode,
+                    category: item.category,
+                    price: item.price,
+                    stock: item.stock,
+                    last_updated: new Date().toISOString()
+                })), { onConflict: 'name' }); 
+
+            if (invError) throw invError;
+            console.log("Supabase: Inventory synced.");
+        } catch (err) {
+            console.error("Supabase Sync Error:", err);
+        }
+    }
+
+    async function pullFromSupabase(silent = false) {
+        try {
+            const { data, error } = await supabase
+                .from('inventory')
+                .select('*');
+
+            if (error) throw error;
+
+            if (data && data.length > 0) {
+                if (inventory.length === 0 || !silent) {
+                    inventory = data.map(d => ({
+                        id: d.id,
+                        name: d.name,
+                        barcode: d.barcode,
+                        category: d.category,
+                        price: parseFloat(d.price),
+                        stock: d.stock
+                    }));
+                    saveInventory(true); // Save locally but don't re-push
+                    if (!silent) showToast("Data restored from Supabase!", "success");
+                }
+            }
+        } catch (err) {
+            if (!silent) console.error("Supabase Pull Error:", err);
+        }
     }
 
     initializeData();
 
-    function saveInventory() {
+    function saveInventory(skipCloud = false) {
         localStorage.setItem('taruchhaya_inventory', JSON.stringify(inventory));
         idbSet('taruchhaya_inventory', inventory).catch(err => console.error("IDB Save Error", err));
         updateDashboard();
         renderInventoryTable();
         populatePosSelect();
         scheduleDriveAutoSync();
+        if (!skipCloud) pushToSupabase();
     }
 
     function saveRevenue(amount, isOnline = false) {
@@ -331,6 +388,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         updateDashboard();
         scheduleDriveAutoSync();
+        pushToSupabase();
     }
 
     /**
