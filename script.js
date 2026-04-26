@@ -254,7 +254,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // If local inventory is empty, pull silently and immediately
                 if (inventory.length === 0) {
                     pullFromSupabase(true);
-                } 
+                }
                 // If local exists but counts differ, show the banner
                 else if (inventory.length !== data.length) {
                     const banner = document.getElementById('supabaseUpdateBanner');
@@ -302,11 +302,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         stock: d.stock
                     }));
                     saveInventory(true); // Save locally but don't re-push
-                    
+
                     // Hide the banner if it was open
                     const banner = document.getElementById('supabaseUpdateBanner');
                     if (banner) banner.style.display = 'none';
-                    
+
                     if (!silent) showToast("Data restored from Supabase!", "success");
                 }
             }
@@ -424,10 +424,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Report Generation Logic ---
     /**
-     * Generates a professional business report and downloads it locally.
+     * Generates a professional business report and uploads it to the cloud.
      * @param {boolean} silent - If true, minimizes user feedback.
      */
-    async function generateAndDownloadReport(silent = false) {
+    async function generateAndUploadReport(silent = false) {
         if (!silent) showToast('Generating professional business report...', 'info');
 
         try {
@@ -476,7 +476,7 @@ document.addEventListener('DOMContentLoaded', () => {
             r += `TOTAL REVENUE      : ₹${totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
             r += `  └─ Online (UPI)  : ₹${onlineRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
             r += `  └─ Cash Sales    : ₹${(totalRevenue - onlineRevenue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n\n`;
-            
+
             r += `Total Transactions : ${txCount}\n`;
             r += `Total Items Sold   : ${totalItemsSold}\n`;
             r += `Average Order Value: ₹${txCount > 0 ? (totalRevenue / txCount).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '0.00'}\n\n`;
@@ -577,19 +577,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function handleReportClick(e) {
         e.preventDefault();
-        customConfirm("Report Action", "Select a reporting task:", () => {
-            // Option 1: Generate New (No PIN needed)
-            generateAndDownloadReport();
-        }, "Generate New", "Browse Archive", () => {
-            // Option 2: Archive (Requires PIN)
-            showPinModal(() => {
-                openReportArchive();
-            });
+        generateAndUploadReport();
+    }
+
+    function handleBrowseClick(e) {
+        e.preventDefault();
+        showPinModal(() => {
+            openReportArchive();
         });
     }
 
     if (reportBtn) reportBtn.addEventListener('click', handleReportClick);
-    if (headerReportBtn) headerReportBtn.addEventListener('click', handleReportClick);
+    if (headerReportBtn) headerReportBtn.addEventListener('click', handleBrowseClick);
 
     async function processLogout(e) {
         if (e) e.preventDefault();
@@ -1417,7 +1416,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function openReportArchive() {
         reportArchiveModal.classList.add('open');
         archiveContentBody.innerHTML = '<div style="display:flex; justify-content:center; padding: 50px;"><i class="ph ph-circle-notch spinning" style="font-size: 32px; color: var(--accent-brand);"></i></div>';
-        
+
         try {
             const { data: reports, error } = await supabaseClient
                 .from('reports')
@@ -1441,7 +1440,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderArchiveFolders(reports) {
         archivePathLabel.textContent = "Browse folders by month";
         const months = {};
-        
+
         reports.forEach(report => {
             const date = new Date(report.created_at);
             const monthKey = date.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
@@ -1470,7 +1469,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderArchiveDays(monthReports, monthName) {
         archivePathLabel.textContent = `Reports for ${monthName}`;
-        
+
         let html = `<button class="back-btn" id="backToFolders"><i class="ph ph-arrow-left"></i> Back to Months</button>`;
         html += '<div class="report-list">';
         monthReports.forEach(report => {
@@ -1483,7 +1482,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                         <div>
                             <div style="font-weight: 600; color: var(--text-primary);">${day}</div>
-                            <div style="font-size: 11px; color: var(--text-tertiary);">Finalized on ${new Date(report.created_at).toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'})}</div>
+                            <div style="font-size: 11px; color: var(--text-tertiary);">Finalized on ${new Date(report.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
                         </div>
                     </div>
                     <button class="primary-btn" style="height: 36px; padding: 0 12px; font-size: 12px;">View Virtually</button>
@@ -1494,7 +1493,7 @@ document.addEventListener('DOMContentLoaded', () => {
         archiveContentBody.innerHTML = html;
 
         document.getElementById('backToFolders').addEventListener('click', () => openReportArchive());
-        
+
         archiveContentBody.querySelectorAll('.report-entry').forEach(entry => {
             entry.addEventListener('click', () => {
                 const report = monthReports.find(r => r.id === entry.dataset.id);
