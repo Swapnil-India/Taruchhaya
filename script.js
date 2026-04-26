@@ -9,11 +9,6 @@
 
 /* --- ⚙️ System Configuration --- */
 const CONFIG = {
-    DRIVE: {
-        DEFAULT_CLIENT_ID: '399513000518-8b1o4jm1jsq6oppu6kae46q4trnv4u6s.apps.googleusercontent.com',
-        DISCOVERY_DOC: 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest',
-        SCOPES: 'https://www.googleapis.com/auth/drive.file'
-    },
     DATABASE: {
         NAME: 'TaruchhayaDB',
         VERSION: 1,
@@ -32,101 +27,11 @@ const CONFIG = {
 const supabaseClient = window.supabase.createClient(CONFIG.SUPABASE.URL, CONFIG.SUPABASE.KEY);
 
 /* --- 🌏 Global State --- */
-let GOOGLE_CLIENT_ID = localStorage.getItem('taruchhaya_drive_client_id') || CONFIG.DRIVE.DEFAULT_CLIENT_ID;
-let tokenClient;
-let gapiInited = false;
-let gisInited = false;
 let inventory = [];
 let totalRevenue = 0;
 let onlineRevenue = 0;
 let analyticsChartObj = null;
 
-/* --- 🛡️ Google Drive API Lifecycle --- */
-
-window.gapiLoaded = function () {
-    console.log("GAPI script loaded");
-    gapi.load('client', async () => {
-        try {
-            await gapi.client.init({ discoveryDocs: [CONFIG.DRIVE.DISCOVERY_DOC] });
-            gapiInited = true;
-            console.log("GAPI Client initialized");
-            if (window.checkBeforeStart) window.checkBeforeStart();
-        } catch (e) {
-            console.error("GAPI Init error:", e);
-        }
-    });
-};
-
-window.gisLoaded = function () {
-    console.log("GIS script loaded");
-    initTokenClient();
-};
-
-function initTokenClient() {
-    try {
-        tokenClient = google.accounts.oauth2.initTokenClient({
-            client_id: GOOGLE_CLIENT_ID,
-            scope: CONFIG.DRIVE.SCOPES,
-            callback: '', // assigned in click handler
-        });
-        gisInited = true;
-        console.log("GIS Token Client initialized with ID:", GOOGLE_CLIENT_ID);
-        if (window.checkBeforeStart) window.checkBeforeStart();
-    } catch (e) {
-        console.error("GIS Init error:", e);
-    }
-}
-
-window.checkBeforeStart = function () {
-    if (gapiInited && gisInited) {
-        console.log("Both APIs ready");
-
-        // --- Persistent Drive Connection ---
-        // If user has previously connected, silently re-acquire a token
-        // (no popup — Google remembers the granted consent)
-        const isPersistentlyConnected = localStorage.getItem('taruchhaya_drive_connected') === 'true';
-
-        if (isPersistentlyConnected) {
-            console.log("Persistent Drive connection found — silently re-authenticating...");
-            // Check if current in-memory token is still valid first
-            const savedToken = localStorage.getItem('google_drive_token');
-            if (savedToken) {
-                try {
-                    const token = JSON.parse(savedToken);
-                    if (Date.now() < token.expires_at) {
-                        // Still valid — just restore it
-                        gapi.client.setToken(token);
-                        if (window.updateDriveUI) window.updateDriveUI(true);
-                        console.log("Drive token still valid, connection restored.");
-                        return;
-                    }
-                } catch (e) { /* fall through to silent refresh */ }
-            }
-
-            // Token expired or missing — silently get a fresh one (no consent popup)
-            tokenClient.callback = (resp) => {
-                if (resp.error) {
-                    // Silent refresh failed (user revoked access externally)
-                    console.warn("Silent Drive re-auth failed:", resp.error);
-                    localStorage.removeItem('taruchhaya_drive_connected');
-                    localStorage.removeItem('google_drive_token');
-                    if (window.updateDriveUI) window.updateDriveUI(false);
-                    return;
-                }
-                resp.expires_at = Date.now() + (resp.expires_in * 1000);
-                localStorage.setItem('google_drive_token', JSON.stringify(resp));
-                gapi.client.setToken(resp); // <--- ENSURE TOKEN IS SET IN GAPI
-                if (window.updateDriveUI) window.updateDriveUI(true);
-                console.log("Drive token silently refreshed.");
-            };
-            // prompt: '' means no account chooser / no consent screen
-            tokenClient.requestAccessToken({ prompt: '' });
-        } else {
-            // Not persistently connected — show alert banner
-            if (window.updateDriveUI) window.updateDriveUI(false);
-        }
-    }
-};
 
 
 /**
@@ -272,9 +177,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function initializeData() {
-        // Populate Client ID input in settings
-        const driveClientIdInput = document.getElementById('driveClientIdInput');
-        if (driveClientIdInput) driveClientIdInput.value = GOOGLE_CLIENT_ID;
 
         try {
             const idbInv = await idbGet('taruchhaya_inventory');
@@ -312,7 +214,6 @@ document.addEventListener('DOMContentLoaded', () => {
             sessionStorage.setItem('ti_session_active', 'true');
         }
 
-        scheduleDriveAutoSync();
         checkForSupabaseUpdates(); // Background check for cloud updates
     }
 
@@ -419,7 +320,6 @@ document.addEventListener('DOMContentLoaded', () => {
         updateDashboard();
         renderInventoryTable();
         populatePosSelect();
-        scheduleDriveAutoSync();
         if (!skipCloud) pushToSupabase();
     }
 
@@ -434,7 +334,6 @@ document.addEventListener('DOMContentLoaded', () => {
         idbSet('taruchhaya_online_revenue', onlineRevenue).catch(err => console.error("IDB Save Error", err));
 
         updateDashboard();
-        scheduleDriveAutoSync();
         pushToSupabase();
     }
 
@@ -521,64 +420,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Report Generation Logic ---
-    async function generateAndUploadReport(silent = false) {
-        if (typeof gapi === 'undefined' || !gapi.client) {
-            showToast('Google Drive API not ready. Please refresh.', 'error');
-            return;
-        }
-
-        // --- PRE-UPLOAD TOKEN VALIDATION/REFRESH ---
-        const savedToken = localStorage.getItem('google_drive_token');
-        if (savedToken) {
-            try {
-                const token = JSON.parse(savedToken);
-                if (Date.now() >= token.expires_at) {
-                    if (!silent) showToast('Refreshing Drive connection...', 'info');
-                    await new Promise((resolve, reject) => {
-                        tokenClient.callback = (resp) => {
-                            if (resp.error) {
-                                // If silent refresh fails and it's NOT a background sync, 
-                                // ask for user consent to re-login.
-                                if (!silent) {
-                                    tokenClient.callback = (retryResp) => {
-                                        if (retryResp.error) {
-                                            localStorage.removeItem('taruchhaya_drive_connected');
-                                            reject(retryResp);
-                                        } else {
-                                            retryResp.expires_at = Date.now() + (retryResp.expires_in * 1000);
-                                            localStorage.setItem('google_drive_token', JSON.stringify(retryResp));
-                                            gapi.client.setToken(retryResp);
-                                            resolve();
-                                        }
-                                    };
-                                    tokenClient.requestAccessToken({ prompt: 'select_account' });
-                                } else {
-                                    localStorage.removeItem('taruchhaya_drive_connected');
-                                    reject(resp);
-                                }
-                            } else {
-                                resp.expires_at = Date.now() + (resp.expires_in * 1000);
-                                localStorage.setItem('google_drive_token', JSON.stringify(resp));
-                                gapi.client.setToken(resp);
-                                resolve();
-                            }
-                        };
-                        tokenClient.requestAccessToken({ prompt: '' });
-                    });
-                } else {
-                    gapi.client.setToken(token);
-                }
-            } catch (e) {
-                if (!silent) showToast('Please connect Google Drive in Settings!', 'warning');
-                return;
-            }
-        }
-
-        if (gapi.client.getToken() === null) {
-            if (!silent) showToast('Please connect Google Drive in Settings first!', 'warning');
-            return;
-        }
-
+    /**
+     * Generates a professional business report and downloads it locally.
+     * @param {boolean} silent - If true, minimizes user feedback.
+     */
+    async function generateAndDownloadReport(silent = false) {
         if (!silent) showToast('Generating professional business report...', 'info');
 
         try {
@@ -682,61 +528,26 @@ document.addEventListener('DOMContentLoaded', () => {
             r += `            Verified by Taruchhaya Systems\n`;
             r += `====================================================\n`;
 
-            // --- ROBUST UPLOAD TO DRIVE ---
-            if (!silent) showToast('Uploading report to Google Drive...', 'info');
-
-            const boundary = '-------taruchhayareport2026';
-            const metadata = { name: reportFileName, mimeType: 'text/plain' };
-
-            // Construction of multipart/related body with strict newline compliance
-            const multipartBody =
-                `--${boundary}\r\n` +
-                `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
-                JSON.stringify(metadata) + `\r\n` +
-                `--${boundary}\r\n` +
-                `Content-Type: text/plain; charset=utf-8\r\n\r\n` +
-                r + `\r\n` +
-                `--${boundary}--`;
-
-            const response = await gapi.client.request({
-                path: 'https://www.googleapis.com/upload/drive/v3/files',
-                method: 'POST',
-                params: { uploadType: 'multipart' },
-                headers: { 'Content-Type': `multipart/related; boundary="${boundary}"` },
-                body: multipartBody
-            });
-
-            if (response.status >= 200 && response.status < 300) {
-                if (!silent) {
-                    showToast('✅ Report uploaded! Resetting revenue for the new day.', 'success');
-
-                    // Automatically clear revenue and session analytics for the next business day
-                    resetRevenue();
-                    resetSessionAnalytics();
-
-                    // Provide a slight delay for UI feedback
-                    setTimeout(() => {
-                        showToast('Business day reset successfully. Start fresh!', 'info');
-                    }, 1500);
-                }
-                return true;
-            } else {
-                throw new Error(`Cloud rejection: Status ${response.status}`);
-            }
-        } catch (err) {
-            console.error('Unified Error Log:', err);
-            let errMsg = "An unexpected error occurred.";
-
-            if (err.result && err.result.error) errMsg = err.result.error.message;
-            else if (err.message) errMsg = err.message;
+            // --- LOCAL DOWNLOAD ---
+            const blob = new Blob([r], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = reportFileName;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
 
             if (!silent) {
-                if (errMsg.toLowerCase().includes('origin') || errMsg.toLowerCase().includes('unauthorized') || err.status === 401) {
-                    showToast(`Access Denied: Please disconnect and reconnect Google Drive in Settings.`, "warning");
-                } else {
-                    showToast('Report Upload Failed: ' + errMsg, 'error');
-                }
+                showToast('✅ Report generated and downloaded!', 'success');
+                resetRevenue();
+                resetSessionAnalytics();
             }
+            return true;
+        } catch (err) {
+            console.error('Report Error:', err);
+            if (!silent) showToast('Report Generation Failed.', 'error');
             return false;
         }
     }
@@ -747,8 +558,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const logoutBtn = document.getElementById('logoutBtn');
     const headerLogoutBtn = document.getElementById('headerLogoutBtn');
 
-    if (reportBtn) reportBtn.addEventListener('click', (e) => { e.preventDefault(); generateAndUploadReport(); });
-    if (headerReportBtn) headerReportBtn.addEventListener('click', (e) => { e.preventDefault(); generateAndUploadReport(); });
+    if (reportBtn) reportBtn.addEventListener('click', (e) => { e.preventDefault(); generateAndDownloadReport(); });
+    if (headerReportBtn) headerReportBtn.addEventListener('click', (e) => { e.preventDefault(); generateAndDownloadReport(); });
 
     async function processLogout(e) {
         if (e) e.preventDefault();
@@ -1566,266 +1377,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 
-    // Drive UI Updates
-    window.updateDriveUI = function (isConnected) {
-        const driveConnectedUI = document.getElementById('driveConnectedUI');
-        const driveDisconnectedUI = document.getElementById('driveDisconnectedUI');
-        const driveStatusBadge = document.getElementById('driveStatusBadge');
-        const driveLastSync = document.getElementById('driveLastSync');
-        const driveConnectionAlert = document.getElementById('driveConnectionAlert');
 
-        if (isConnected) {
-            if (driveConnectedUI) driveConnectedUI.style.display = 'block';
-            if (driveDisconnectedUI) driveDisconnectedUI.style.display = 'none';
-            if (driveConnectionAlert) driveConnectionAlert.style.display = 'none';
-            if (driveStatusBadge) {
-                driveStatusBadge.innerHTML = '<i class="ph-fill ph-circle" style="color: #34A853;"></i> Connected';
-                driveStatusBadge.style.color = '#34A853';
-                driveStatusBadge.style.background = 'rgba(52, 168, 83, 0.1)';
-            }
-            const lastSync = localStorage.getItem('taruchhaya_last_sync');
-            if (driveLastSync && lastSync) driveLastSync.textContent = `Last synced: ${new Date(lastSync).toLocaleString()}`;
-        } else {
-            if (driveConnectedUI) driveConnectedUI.style.display = 'none';
-            if (driveDisconnectedUI) driveDisconnectedUI.style.display = 'block';
-            if (driveConnectionAlert) driveConnectionAlert.style.display = 'flex';
-            if (driveStatusBadge) {
-                driveStatusBadge.innerHTML = '<i class="ph ph-circle"></i> Not Connected';
-                driveStatusBadge.style.color = 'var(--text-tertiary)';
-                driveStatusBadge.style.background = 'rgba(255,255,255,0.05)';
-            }
-            localStorage.removeItem('google_drive_token');
-        }
-    };
-
-    const driveConnectBtn = document.getElementById('driveConnectBtn');
-    if (driveConnectBtn) {
-        driveConnectBtn.addEventListener('click', () => {
-            tokenClient.callback = async (resp) => {
-                if (resp.error !== undefined) throw (resp);
-                resp.expires_at = Date.now() + (resp.expires_in * 1000);
-                localStorage.setItem('google_drive_token', JSON.stringify(resp));
-                gapi.client.setToken(resp); // <--- ENSURE TOKEN IS SET IN GAPI
-                // ✅ Mark as persistently connected so we auto-reconnect on next load
-                localStorage.setItem('taruchhaya_drive_connected', 'true');
-                updateDriveUI(true);
-                showToast("✅ Google Drive connected! It will stay connected automatically.", 'success');
-            };
-
-            if (gapi.client.getToken() === null) {
-                tokenClient.requestAccessToken({ prompt: 'consent' });
-            } else {
-                tokenClient.requestAccessToken({ prompt: '' });
-            }
-        });
-    }
-
-    const driveDisconnectBtn = document.getElementById('driveDisconnectBtn');
-    if (driveDisconnectBtn) {
-        driveDisconnectBtn.addEventListener('click', () => {
-            customConfirm('Disconnect Google Drive?', 'This will stop automatic syncing. Your data already on Drive will remain safe. Reconnect anytime from Settings.', () => {
-                const token = gapi.client.getToken();
-                if (token !== null) {
-                    google.accounts.oauth2.revoke(token.access_token);
-                    gapi.client.setToken('');
-                }
-                // ✅ Clear persistent connection flag so we don't auto-reconnect
-                localStorage.removeItem('taruchhaya_drive_connected');
-                localStorage.removeItem('google_drive_token');
-                updateDriveUI(false);
-                showToast("Disconnected from Google Drive.", 'info');
-            });
-        });
-    }
-
-    async function syncToDrive(silent = false) {
-        try {
-            const data = {
-                inventory: inventory,
-                totalRevenue: totalRevenue,
-                syncDate: new Date().toISOString(),
-                app: "Taruchhaya Inventory"
-            };
-
-            let response = await gapi.client.drive.files.list({
-                q: "name = 'taruchhaya_v1_backup.json' and trashed = false",
-                fields: 'files(id, name)',
-            });
-
-            const files = response.result.files;
-            const fileContent = JSON.stringify(data, null, 2);
-
-            if (files.length > 0) {
-                const fileId = files[0].id;
-                await gapi.client.request({
-                    path: 'https://www.googleapis.com/upload/drive/v3/files/' + fileId,
-                    method: 'PATCH',
-                    params: { uploadType: 'media' },
-                    body: fileContent
-                });
-            } else {
-                const metadata = { name: 'taruchhaya_v1_backup.json', mimeType: 'application/json' };
-                const boundary = '-------taruchhayabackup2026';
-
-                const multipartRequestBody =
-                    `--${boundary}\r\n` +
-                    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
-                    JSON.stringify(metadata) + `\r\n` +
-                    `--${boundary}\r\n` +
-                    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
-                    fileContent + `\r\n` +
-                    `--${boundary}--`;
-
-                await gapi.client.request({
-                    path: 'https://www.googleapis.com/upload/drive/v3/files',
-                    method: 'POST',
-                    params: { uploadType: 'multipart' },
-                    headers: { 'Content-Type': `multipart/related; boundary="${boundary}"` },
-                    body: multipartRequestBody
-                });
-            }
-            localStorage.setItem('taruchhaya_last_sync', new Date().toISOString());
-            updateDriveUI(true);
-            if (!silent) showToast("✅ Cloud sync successfully completed!", "success");
-        } catch (err) {
-            console.error("Cloud Sync Error:", err);
-            let errMsg = "Unknown synchronization error.";
-            if (err.result && err.result.error) errMsg = err.result.error.message;
-            else if (err.message) errMsg = err.message;
-
-            if (!silent) {
-                if (errMsg.toLowerCase().includes('origin') || errMsg.toLowerCase().includes('unauthorized') || err.status === 401) {
-                    showToast(`Access Denied: Reconnect Drive in Settings.`, "warning");
-                } else {
-                    showToast("Sync failed: " + errMsg, "error");
-                }
-            }
-        }
-    }
-
-    async function pullFromDrive() {
-        try {
-            let response = await gapi.client.drive.files.list({
-                q: "name = 'taruchhaya_v1_backup.json' and trashed = false",
-                fields: 'files(id, name)',
-            });
-
-            const files = response.result.files;
-            if (files.length === 0) {
-                showToast("No backup found on Drive.", "error");
-                return;
-            }
-
-            const fileId = files[0].id;
-            const fileResp = await gapi.client.drive.files.get({ fileId: fileId, alt: 'media' });
-            const importedData = fileResp.result;
-
-            customConfirm('Sync from Cloud?', 'This will replace your current local data with the backup from Google Drive. Are you sure?', () => {
-                inventory = importedData.inventory;
-                totalRevenue = importedData.totalRevenue || 0;
-                saveInventory();
-                localStorage.setItem('taruchhaya_revenue', totalRevenue);
-                localStorage.setItem('taruchhaya_last_sync', new Date().toISOString());
-                updateDashboard();
-                updateDriveUI(true);
-                showToast('Success! Data pulled from Google Drive.', 'success');
-                document.querySelector('[data-view="dashboard"]').click();
-            });
-        } catch (err) {
-            console.error("Pull Error Details:", err);
-
-            let errMsg = err.message || "Unknown error";
-
-            // Handle structured GAPI errors
-            if (err.result && err.result.error) {
-                errMsg = err.result.error.message;
-            }
-
-            if (errMsg.toLowerCase().includes('origin') || errMsg.toLowerCase().includes('unauthorized') || err.status === 401 || err.status === 403) {
-                showToast("Security Update Detected: Please 'Disconnect' and 'Connect' Drive again in Settings.", "warning");
-            } else {
-                showToast("Pull failed: " + errMsg, "error");
-            }
-        }
-    }
-
-    const drivePushBtn = document.getElementById('drivePushBtn');
-    const drivePullBtn = document.getElementById('drivePullBtn');
-    if (drivePushBtn) drivePushBtn.addEventListener('click', () => syncToDrive(false));
-    if (drivePullBtn) drivePullBtn.addEventListener('click', pullFromDrive);
-
-    // --- Google Client ID Update Logic ---
-    const driveClientIdInput = document.getElementById('driveClientIdInput');
-    const saveClientIdBtn = document.getElementById('saveClientIdBtn');
-    const resetClientIdBtn = document.getElementById('resetClientIdBtn');
-
-    if (saveClientIdBtn && driveClientIdInput) {
-        saveClientIdBtn.addEventListener('click', () => {
-            const newId = driveClientIdInput.value.trim();
-            if (!newId) return;
-            GOOGLE_CLIENT_ID = newId;
-            localStorage.setItem('taruchhaya_drive_client_id', newId);
-            initTokenClient();
-            showToast("Google Client ID updated! Please try connecting again.", "success");
-        });
-    }
-
-    if (resetClientIdBtn && driveClientIdInput) {
-        resetClientIdBtn.addEventListener('click', () => {
-            GOOGLE_CLIENT_ID = CONFIG.DRIVE.DEFAULT_CLIENT_ID;
-            localStorage.removeItem('taruchhaya_drive_client_id');
-            driveClientIdInput.value = CONFIG.DRIVE.DEFAULT_CLIENT_ID;
-            initTokenClient();
-            showToast("Client ID reset to system default.", "info");
-        });
-    }
-
-    // --- Auto-Sync to Drive (debounced, fires 3s after any data change) ---
-    let autoSyncTimer = null;
-    async function scheduleDriveAutoSync() {
-        // Only auto-sync if user has persistently connected Drive
-        if (localStorage.getItem('taruchhaya_drive_connected') !== 'true') return;
-
-        // Ensure we have a valid (non-expired) token before syncing
-        const savedToken = localStorage.getItem('google_drive_token');
-        if (savedToken) {
-            try {
-                const token = JSON.parse(savedToken);
-                if (Date.now() >= token.expires_at) {
-                    // Token expired — silently refresh before syncing
-                    await new Promise((resolve) => {
-                        tokenClient.callback = (resp) => {
-                            if (!resp.error) {
-                                resp.expires_at = Date.now() + (resp.expires_in * 1000);
-                                localStorage.setItem('google_drive_token', JSON.stringify(resp));
-                                gapi.client.setToken(resp);
-                            }
-                            resolve();
-                        };
-                        tokenClient.requestAccessToken({ prompt: '' });
-                    });
-                } else {
-                    // Token still valid — ensure it's set in gapi
-                    gapi.client.setToken(JSON.parse(savedToken));
-                }
-            } catch (e) { return; }
-        } else {
-            return; // No token at all
-        }
-
-        // Debounce: reset timer on every call, sync 3s after last change
-        clearTimeout(autoSyncTimer);
-        autoSyncTimer = setTimeout(() => {
-            syncToDrive(true); // silent = true, no toast
-        }, 3000);
-    }
-
-    // Trigger check anyway in case scripts loaded very fast
-    window.checkBeforeStart();
-
-    // Fallback if global handlers weren't triggered by script tags
-    if (typeof gapi !== 'undefined' && gapi.load && !gapiInited) window.gapiLoaded();
-    if (typeof google !== 'undefined' && google.accounts && !gisInited) window.gisLoaded();
 
     // --- Supabase Banner Listener ---
     const syncSupabaseNowBtn = document.getElementById('syncSupabaseNowBtn');

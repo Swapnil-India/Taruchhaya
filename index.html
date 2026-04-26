@@ -36,9 +36,6 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
 
-    <!-- Google Drive Integration Scripts -->
-    <script src="https://accounts.google.com/gsi/client" onload="gisLoaded()" async defer></script>
-    <script src="https://apis.google.com/js/api.js?onload=gapiLoaded" async defer></script>
 
     <!-- ✨ Supabase Integration (Phase 1) -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -144,19 +141,6 @@
                     </div>
                 </div>
 
-                <!-- Google Drive Connection Alert -->
-                <div id="driveConnectionAlert" class="drive-error-banner" style="display: none;">
-                    <div class="banner-content">
-                        <div class="banner-icon"><i class="ph-fill ph-warning-circle"></i></div>
-                        <div class="banner-text">
-                            <h4>Google Drive Disconnected</h4>
-                            <p>Automatic cloud sync is disabled. Your data is only saved locally.</p>
-                        </div>
-                    </div>
-                    <button class="secondary-btn" onclick="document.querySelector('[data-view=\'settings\']').click()">
-                        Reconnect Now
-                    </button>
-                </div>
 
                 <!-- ✨ Supabase Update Available Banner -->
                 <div id="supabaseUpdateBanner" class="drive-error-banner" 
@@ -265,109 +249,6 @@
                     </div>
                 </div>
 
-                <div class="glass-panel drive-sync-panel"
-                    style="padding: 32px; margin-bottom: 24px; border-left: 6px solid #4285F4; position: relative; overflow: hidden;">
-                    <div
-                        style="position: absolute; right: -20px; top: -20px; font-size: 120px; color: rgba(66, 133, 244, 0.05); transform: rotate(15deg); pointer-events: none;">
-                        <i class="ph ph-google-logo"></i>
-                    </div>
-
-                    <div
-                        style="display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px;">
-                        <div>
-                            <h3
-                                style="margin-bottom: 8px; display: flex; align-items: center; gap: 10px; font-size: 20px;">
-                                <i class="ph ph-google-logo" style="color: #4285F4; font-size: 24px;"></i>
-                                Google Drive Cloud Sync
-                            </h3>
-                            <p
-                                style="color: var(--text-secondary); font-size: 14px; max-width: 500px; line-height: 1.5;">
-                                Enable real-time cloud backups and sync your inventory across all your devices securely
-                                using your personal Google Drive storage.
-                            </p>
-                        </div>
-                        <div id="driveStatusBadge" class="status-badge"
-                            style="background: rgba(255,255,255,0.05); color: var(--text-tertiary); border: 1px solid var(--border-color); font-size: 10px; padding: 4px 10px; border-radius: 20px;">
-                            <i class="ph ph-circle"></i> <span>Not Connected</span>
-                        </div>
-                    </div>
-
-                    <div id="driveConnectedUI" style="display: none; animation: fadeIn 0.4s ease-out;">
-                        <div
-                            style="background: rgba(66, 133, 244, 0.08); padding: 20px; border-radius: 16px; border: 1px solid rgba(66, 133, 244, 0.2); display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
-                            <div style="display: flex; align-items: center; gap: 16px;">
-                                <div
-                                    style="width: 44px; height: 44px; border-radius: 50%; background: #4285F4; display: flex; align-items: center; justify-content: center; color: white;">
-                                    <i class="ph-fill ph-user" style="font-size: 20px;"></i>
-                                </div>
-                                <div>
-                                    <div style="font-size: 14px; font-weight: 600; color: var(--text-primary);">
-                                        Connected Account</div>
-                                    <div id="driveUserEmail" style="font-size: 13px; color: var(--text-secondary);">
-                                        active.user@gmail.com</div>
-                                </div>
-                            </div>
-                            <button class="secondary-btn" id="driveDisconnectBtn"
-                                style="padding: 8px 16px; font-size: 12px; border-color: rgba(239, 68, 68, 0.3); color: var(--accent-danger);">
-                                <i class="ph ph-sign-out"></i> Disconnect
-                            </button>
-                        </div>
-
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-                            <button class="primary-btn" id="drivePushBtn"
-                                style="justify-content: center; height: 52px; background: linear-gradient(135deg, #4285F4, #34A853); border: none; font-weight: 600;">
-                                <i class="ph ph-cloud-arrow-up" style="font-size: 20px;"></i> Push Data
-                            </button>
-                            <button class="secondary-btn" id="drivePullBtn"
-                                style="justify-content: center; height: 52px; font-weight: 600;">
-                                <i class="ph ph-cloud-arrow-down" style="font-size: 20px;"></i> Pull Data
-                            </button>
-                        </div>
-                        <div style="margin-top: 12px; text-align: center;">
-                            <a href="https://drive.google.com/drive/u/2/home" target="_blank"
-                                style="font-size: 11px; color: #4285F4; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
-                                <i class="ph ph-arrow-square-out"></i> Open Google Drive Home
-                            </a>
-                        </div>
-                        <p id="driveLastSync"
-                            style="font-size: 11px; color: var(--text-tertiary); margin-top: 12px; text-align: center;">
-                            Last synced: Never
-                        </p>
-                    </div>
-
-                    <div id="driveDisconnectedUI">
-                        <button class="primary-btn" id="driveConnectBtn"
-                            style="width: 100%; height: 56px; justify-content: center; background-color: #4285F4; box-shadow: 0 8px 24px rgba(66, 133, 244, 0.25); font-size: 16px; font-weight: 600; border-radius: 14px; margin-bottom: 20px;">
-                            <i class="ph ph-google-logo" style="font-size: 22px;"></i> Connect My Google Drive
-                        </button>
-                        <div class="developer-settings"
-                            style="border-top: 1px solid var(--border-color); padding-top: 20px;">
-                            <h4
-                                style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
-                                Developer Configuration</h4>
-                            <div class="form-group" style="margin-bottom: 12px;">
-                                <label style="font-size: 11px; margin-bottom: 4px;">Google Client ID</label>
-                                <div style="display: flex; gap: 8px;">
-                                    <input type="text" id="driveClientIdInput" placeholder="Enter Client ID..."
-                                        style="flex: 1; padding: 8px 12px; font-size: 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-primary);">
-                                    <button class="secondary-btn" id="saveClientIdBtn"
-                                        style="padding: 0 12px; font-size: 12px;">Save</button>
-                                    <button class="secondary-btn" id="resetClientIdBtn"
-                                        title="Reset to default system ID"
-                                        style="padding: 0 10px; font-size: 12px; border-color: transparent;"><i
-                                            class="ph ph-arrow-counter-clockwise"></i></button>
-                                </div>
-                            </div>
-                            <p style="font-size: 10px; color: var(--text-tertiary); line-height: 1.5;">
-                                <i class="ph ph-info" style="vertical-align: middle;"></i>
-                                If you see "Authorization Error: deleted_client", your ID is no longer valid. Create a
-                                new one in <a href="https://console.cloud.google.com/" target="_blank"
-                                    style="color: #4285F4;">Google Console</a> and authorize
-                                <code>http://localhost:3000</code>.
-                            </p>
-                        </div>
-                    </div>
-                </div>
 
                 <div class="glass-panel" style="padding: 32px; margin-bottom: 24px;">
                     <h3 style="margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
