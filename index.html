@@ -123,7 +123,7 @@
                     </button>
                     <a href="#" class="secondary-btn" id="headerReportBtn"
                         style="display:inline-flex; align-items:center; gap:6px; text-decoration:none; color:var(--text-primary); border-color:var(--border-color); padding: 8px 16px;">
-                        <i class="ph ph-file-text"></i> Report
+                        <i class="ph ph-file-text"></i> Generate Report
                     </a>
                     <a href="login.html" class="secondary-btn" id="headerLogoutBtn"
                         style="display:inline-flex; align-items:center; gap:6px; text-decoration:none; color:var(--accent-danger); border-color:rgba(239,68,68,0.3); padding: 8px 16px;">
@@ -582,6 +582,33 @@
                 <button class="btn-cancel" style="flex: 1; height: 44px;" id="cancelPinBtn">Cancel</button>
                 <button class="primary-btn" style="flex: 1; height: 44px; justify-content: center;"
                     id="verifyPinBtn">Verify</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- --- Virtual Report Viewer Modal --- -->
+    <div class="modal-overlay" id="reportViewModal">
+        <div class="modal-content" style="width: 600px; max-width: 95vw;">
+            <div class="modal-header">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div
+                        style="width: 40px; height: 40px; background: rgba(16, 185, 129, 0.1); color: var(--accent-success); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                        <i class="ph ph-eye" style="font-size: 20px;"></i>
+                    </div>
+                    <div>
+                        <h3 style="font-size: 18px; font-weight: 700;" id="viewReportTitle">Report View</h3>
+                        <p style="font-size: 12px; color: var(--text-tertiary);">Finalized business summary</p>
+                    </div>
+                </div>
+                <button class="close-modal" id="closeViewModal"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="modal-body" style="padding: 0;">
+                <pre id="reportViewerText"
+                    style="margin: 0; padding: 24px; font-family: 'Courier New', Courier, monospace; font-size: 13px; line-height: 1.5; background: #000; color: #10b981; overflow-x: auto; white-space: pre; border-bottom: 1px solid var(--border-color); max-height: 500px;"></pre>
+            </div>
+            <div class="modal-footer" style="padding: 16px 24px; display: flex; justify-content: flex-end; gap: 12px;">
+                <button class="secondary-btn" id="downloadFromView">Download File</button>
+                <button class="primary-btn" id="closeViewBtn">Close Viewer</button>
             </div>
         </div>
     </div>

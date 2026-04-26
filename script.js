@@ -545,17 +545,6 @@ document.addEventListener('DOMContentLoaded', () => {
             r += `            Verified by Taruchhaya Systems\n`;
             r += `====================================================\n`;
 
-            // --- LOCAL DOWNLOAD ---
-            const blob = new Blob([r], { type: 'text/plain' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = reportFileName;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-
             if (!silent) {
                 // --- CLOUD UPLOAD (FINALIZATION) ---
                 try {
@@ -565,10 +554,10 @@ document.addEventListener('DOMContentLoaded', () => {
                             report_date: dateStr,
                             content: r
                         }]);
-                    showToast('✅ Report generated, downloaded, and synced to Cloud!', 'success');
+                    showToast('✅ Report finalized and uploaded to Cloud!', 'success');
                 } catch (cloudErr) {
                     console.error("Cloud Report Upload Failed:", cloudErr);
-                    showToast('Report downloaded locally, but cloud sync failed.', 'warning');
+                    showToast('Failed to sync report to Cloud.', 'error');
                 }
 
                 resetRevenue();
@@ -588,10 +577,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function handleReportClick(e) {
         e.preventDefault();
-        showPinModal(() => {
-            customConfirm("Report Action", "What would you like to do?", () => {
-                generateAndDownloadReport();
-            }, "Generate New", "Browse Archive", () => {
+        customConfirm("Report Action", "Select a reporting task:", () => {
+            // Option 1: Generate New (No PIN needed)
+            generateAndDownloadReport();
+        }, "Generate New", "Browse Archive", () => {
+            // Option 2: Archive (Requires PIN)
+            showPinModal(() => {
                 openReportArchive();
             });
         });
@@ -1487,7 +1478,7 @@ document.addEventListener('DOMContentLoaded', () => {
             html += `
                 <div class="report-entry" data-id="${report.id}">
                     <div style="display: flex; align-items: center; gap: 16px;">
-                        <div style="width: 40px; height: 40px; background: rgba(99, 102, 241, 0.1); color: var(--accent-brand); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                        <div style="width: 40px; height: 40px; background: rgba(16, 185, 129, 0.1); color: var(--accent-success); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
                             <i class="ph ph-file-text"></i>
                         </div>
                         <div>
@@ -1495,7 +1486,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div style="font-size: 11px; color: var(--text-tertiary);">Finalized on ${new Date(report.created_at).toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'})}</div>
                         </div>
                     </div>
-                    <button class="primary-btn" style="height: 36px; padding: 0 12px; font-size: 12px;">Download</button>
+                    <button class="primary-btn" style="height: 36px; padding: 0 12px; font-size: 12px;">View Virtually</button>
                 </div>
             `;
         });
@@ -1507,10 +1498,37 @@ document.addEventListener('DOMContentLoaded', () => {
         archiveContentBody.querySelectorAll('.report-entry').forEach(entry => {
             entry.addEventListener('click', () => {
                 const report = monthReports.find(r => r.id === entry.dataset.id);
-                downloadTextFile(`Taruchhaya_Archive_${report.report_date.replace(/ /g, '_')}.txt`, report.content);
+                openVirtualReport(report);
             });
         });
     }
+
+    // --- 👁️ Virtual Report Viewer Logic ---
+    const reportViewModal = document.getElementById('reportViewModal');
+    const reportViewerText = document.getElementById('reportViewerText');
+    const viewReportTitle = document.getElementById('viewReportTitle');
+    const closeViewModal = document.getElementById('closeViewModal');
+    const closeViewBtn = document.getElementById('closeViewBtn');
+    const downloadFromView = document.getElementById('downloadFromView');
+    let currentViewingReport = null;
+
+    function openVirtualReport(report) {
+        currentViewingReport = report;
+        viewReportTitle.textContent = `Report: ${report.report_date}`;
+        reportViewerText.textContent = report.content;
+        reportViewModal.classList.add('open');
+    }
+
+    if (downloadFromView) {
+        downloadFromView.addEventListener('click', () => {
+            if (currentViewingReport) {
+                downloadTextFile(`Taruchhaya_Archive_${currentViewingReport.report_date.replace(/ /g, '_')}.txt`, currentViewingReport.content);
+            }
+        });
+    }
+
+    if (closeViewModal) closeViewModal.addEventListener('click', () => reportViewModal.classList.remove('open'));
+    if (closeViewBtn) closeViewBtn.addEventListener('click', () => reportViewModal.classList.remove('open'));
 
     function downloadTextFile(filename, content) {
         const blob = new Blob([content], { type: 'text/plain' });
