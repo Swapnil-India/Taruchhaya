@@ -29,7 +29,7 @@ const CONFIG = {
 };
 
 /* --- ⚡ Supabase Initialization --- */
-const supabase = supabase.createClient(CONFIG.SUPABASE.URL, CONFIG.SUPABASE.KEY);
+const supabaseClient = window.supabase.createClient(CONFIG.SUPABASE.URL, CONFIG.SUPABASE.KEY);
 
 /* --- 🌏 Global State --- */
 let GOOGLE_CLIENT_ID = localStorage.getItem('taruchhaya_drive_client_id') || CONFIG.DRIVE.DEFAULT_CLIENT_ID;
@@ -319,7 +319,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function pushToSupabase() {
         try {
             // Sync Inventory
-            const { error: invError } = await supabase
+            const { error: invError } = await supabaseClient
                 .from('inventory')
                 .upsert(inventory.map(item => ({
                     name: item.name,
@@ -337,9 +337,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    async function pushTransactionToSupabase(amount, method, items) {
+        try {
+            const { error } = await supabaseClient
+                .from('transactions')
+                .insert({
+                    total_amount: amount,
+                    payment_method: method,
+                    items: items
+                });
+            if (error) throw error;
+            console.log("Supabase: Transaction recorded.");
+        } catch (err) {
+            console.error("Supabase Transaction Error:", err);
+        }
+    }
+
     async function pullFromSupabase(silent = false) {
         try {
-            const { data, error } = await supabase
+            const { data, error } = await supabaseClient
                 .from('inventory')
                 .select('*');
 
@@ -1293,6 +1309,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         saveRevenue(currentTotal, isOnline);
         saveInventory();
+
+        // Sync transaction to Supabase
+        pushTransactionToSupabase(currentTotal, isOnline ? 'online' : 'cash', currentCart);
 
         currentCart = [];
         renderCart();
