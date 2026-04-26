@@ -41,10 +41,12 @@
     --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.5);
     --glass-blur: blur(12px);
 
-    --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-
-    /* Typography */
-    --font-main: 'Inter', sans-serif;
+    --transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    --transition-fast: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    --transition-smooth: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    
+    /* Hardware acceleration utility */
+    --gpu: translateZ(0);
 }
 
 /* Light Theme overrides */
@@ -79,9 +81,11 @@ body {
     background-color: var(--bg-app);
     color: var(--text-primary);
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
     overflow-x: hidden;
-    /* Allow scrolling on mobile if main content doesn't handle it, 
-       but preserve independent scrolling for desktop layouts */
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
 }
 
 @media (min-width: 769px) {
@@ -99,7 +103,8 @@ body {
     border-radius: 16px;
     box-shadow: var(--shadow-md);
     /* Improve performance by hinting GPU */
-    transform: translateZ(0);
+    transform: var(--gpu);
+    will-change: transform, opacity;
 }
 
 @media (max-width: 768px) {
@@ -127,7 +132,9 @@ body {
     display: flex;
     flex-direction: column;
     z-index: 50;
-    transition: var(--transition);
+    transition: var(--transition-smooth);
+    transform: var(--gpu);
+    will-change: transform;
 }
 
 .sidebar-header {
@@ -212,10 +219,12 @@ body {
 .nav-item:hover {
     background-color: var(--bg-hover);
     color: var(--text-primary);
+    transform: translateX(4px);
 }
 
 .nav-item:hover i {
-    color: var(--text-primary);
+    color: var(--accent-brand);
+    transform: scale(1.1);
 }
 
 .nav-item.active {
@@ -231,6 +240,13 @@ body {
 .ai-assistant-btn {
     position: relative;
     overflow: hidden;
+    animation: aiPulse 3s infinite;
+}
+
+@keyframes aiPulse {
+    0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.2); }
+    70% { box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
 }
 
 .ai-assistant-btn::before {
@@ -302,6 +318,7 @@ body {
     flex-direction: column;
     overflow: hidden;
     position: relative;
+    overscroll-behavior: none;
 }
 
 /* Top Header */
@@ -429,18 +446,17 @@ body {
 
 .view-container.active {
     display: block;
-    animation: fadeIn 0.3s ease-out;
+    animation: smoothFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-@keyframes fadeIn {
+@keyframes smoothFadeIn {
     from {
         opacity: 0;
-        transform: translateY(10px);
+        transform: translateY(12px) scale(0.99);
     }
-
     to {
         opacity: 1;
-        transform: translateY(0);
+        transform: translateY(0) scale(1);
     }
 }
 
@@ -482,7 +498,12 @@ body {
 
 .primary-btn:hover {
     background-color: var(--accent-brand-hover);
-    transform: translateY(-1px);
+    transform: translateY(-2px) scale(1.02);
+    box-shadow: 0 8px 20px var(--accent-brand-glow);
+}
+
+.primary-btn:active {
+    transform: translateY(0) scale(0.98);
 }
 
 .primary-btn i {
@@ -871,8 +892,14 @@ body {
     justify-content: center;
     cursor: pointer;
     box-shadow: 0 8px 24px var(--accent-brand-glow);
-    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1);
     z-index: 100;
+    animation: fabEntrance 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fabEntrance {
+    from { transform: scale(0) rotate(-45deg); opacity: 0; }
+    to { transform: scale(1) rotate(0); opacity: 1; }
 }
 
 .ai-fab:hover {
@@ -1088,8 +1115,13 @@ body {
     color: var(--text-primary);
 }
 
+.inventory-table tr {
+    transition: var(--transition-fast);
+}
+
 .inventory-table tr:hover td {
     background-color: var(--bg-hover);
+    color: var(--accent-brand);
 }
 
 .modal-overlay {
@@ -1106,7 +1138,8 @@ body {
     z-index: 1000;
     opacity: 0;
     pointer-events: none;
-    transition: var(--transition);
+    transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1), backdrop-filter 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, backdrop-filter;
 }
 
 .modal-overlay.open {
@@ -1120,9 +1153,11 @@ body {
     background: var(--bg-panel-solid);
     border-radius: 16px;
     transform: translateY(20px);
-    transition: var(--transition);
+    transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
     max-height: 90vh;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    will-change: transform;
 }
 
 .modal-overlay.open .modal-content {
@@ -1202,9 +1237,14 @@ form {
 .close-modal {
     background: none;
     border: none;
-    font-size: 20px;
+    font-size: 24px; /* Increased for mobile */
     color: var(--text-secondary);
     cursor: pointer;
+    padding: 8px; /* Larger hit area */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition-fast);
 }
 
 .icon-only-btn {
@@ -1277,8 +1317,8 @@ form {
     align-items: center;
     gap: 12px;
     pointer-events: auto;
-    animation: toastSlideIn 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28) both;
-    transition: all 0.3s ease;
+    animation: toastSlideIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .toast.removing {
@@ -1382,8 +1422,8 @@ form {
     padding: 32px;
     text-align: center;
     box-shadow: var(--shadow-lg), 0 0 40px rgba(0, 0, 0, 0.5);
-    transform: scale(0.9);
-    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transform: scale(0.95) translateY(10px);
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .custom-confirm-overlay.show .custom-confirm-card {

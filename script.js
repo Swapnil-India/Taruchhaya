@@ -703,8 +703,12 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    let searchDebounce = null;
     globalSearch.addEventListener('input', (e) => {
-        renderInventoryTable(e.target.value);
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(() => {
+            renderInventoryTable(e.target.value);
+        }, 150); // Snappy debounce for smooth feel
     });
 
     // Make delete and edit globally accessible for inline onclick
@@ -837,64 +841,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- Export / Import (Data Portability) Logic ---
-    const exportDataBtn = document.getElementById('exportDataBtn');
-    const importDataInput = document.getElementById('importDataInput');
-
-    if (exportDataBtn) {
-        exportDataBtn.addEventListener('click', () => {
-            const data = {
-                inventory: inventory,
-                totalRevenue: totalRevenue,
-                exportDate: new Date().toISOString(),
-                app: "Taruchhaya Inventory"
-            };
-
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
-            const downloadAnchorNode = document.createElement('a');
-            downloadAnchorNode.setAttribute("href", dataStr);
-            downloadAnchorNode.setAttribute("download", `taruchhaya_backup_${new Date().toISOString().split('T')[0]}.json`);
-            document.body.appendChild(downloadAnchorNode);
-            downloadAnchorNode.click();
-            downloadAnchorNode.remove();
-        });
-    }
-
-    if (importDataInput) {
-        importDataInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = function (event) {
-                try {
-                    const importedData = JSON.parse(event.target.result);
-
-                    if (importedData.app !== "Taruchhaya Inventory" || !Array.isArray(importedData.inventory)) {
-                        throw new Error("Invalid backup file format.");
-                    }
-
-                    customConfirm('Restore Data?', `This will REPLACE your current data with ${importedData.inventory.length} items from the backup. Are you sure?`, () => {
-                        inventory = importedData.inventory;
-                        totalRevenue = importedData.totalRevenue || 0;
-
-                        saveInventory();
-                        localStorage.setItem('taruchhaya_revenue', totalRevenue);
-                        updateDashboard();
-
-                        showToast("Data restored successfully!", "success");
-                        // Move to dashboard to show results
-                        document.querySelector('[data-view="dashboard"]').click();
-                    });
-                } catch (err) {
-                    console.error("Import error:", err);
-                    showToast("Import failed: Please ensure you are uploading a valid Taruchhaya backup file.", "error");
-                }
-                importDataInput.value = ''; // Reset for next time
-            };
-            reader.readAsText(file);
-        });
-    }
 
     productForm.addEventListener('submit', (e) => {
         e.preventDefault();
