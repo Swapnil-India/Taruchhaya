@@ -71,7 +71,7 @@ function showToast(message, type = 'success') {
     }, 5000);
 }
 
-function customConfirm(title, message, onConfirm) {
+function customConfirm(title, message, onConfirm, confirmText = "Proceed", cancelText = "Cancel", onCancel = null) {
     let overlay = document.getElementById('custom-confirm-overlay');
     if (!overlay) {
         overlay = document.createElement('div');
@@ -98,23 +98,26 @@ function customConfirm(title, message, onConfirm) {
 
     titleEl.textContent = title;
     msgEl.textContent = message;
+    proceedBtn.textContent = confirmText;
+    cancelBtn.textContent = cancelText;
 
     overlay.classList.add('show');
 
-    const closeHandler = () => {
+    const cleanup = () => {
         overlay.classList.remove('show');
-        cancelBtn.removeEventListener('click', cancelHandler);
-        proceedBtn.removeEventListener('click', proceedHandler);
+        cancelBtn.replaceWith(cancelBtn.cloneNode(true));
+        proceedBtn.replaceWith(proceedBtn.cloneNode(true));
     };
 
-    const cancelHandler = () => closeHandler();
-    const proceedHandler = () => {
-        closeHandler();
+    document.getElementById('confirm-cancel').addEventListener('click', () => {
+        cleanup();
+        if (onCancel) onCancel();
+    });
+
+    document.getElementById('confirm-proceed').addEventListener('click', () => {
+        cleanup();
         if (onConfirm) onConfirm();
-    };
-
-    cancelBtn.addEventListener('click', cancelHandler);
-    proceedBtn.addEventListener('click', proceedHandler);
+    });
 }
 
 // Override native alert/confirm for legacy calls if any remain
@@ -463,16 +466,17 @@ document.addEventListener('DOMContentLoaded', () => {
             r += `       🌳 TARUCHHAYA ENTERPRISE - BUSINESS REPORT\n`;
             r += `====================================================\n\n`;
 
-            r += `📅 PERIOD: ${dateStr}\n`;
-            r += `⏰ GENERATED: ${timeStr}\n`;
+            r += `📅 PERIOD          : ${dateStr}\n`;
+            r += `⏰ GENERATED       : ${timeStr}\n`;
             r += `⏱️ SESSION DURATION: ${durationStr}\n\n`;
 
             r += `----------------------------------------------------\n`;
             r += `📊 FINANCIAL PERFORMANCE\n`;
             r += `----------------------------------------------------\n`;
-            r += `Total Revenue      : ₹${totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
-            r += `Online Revenue     : ₹${onlineRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
-            r += `Cash Revenue       : ₹${(totalRevenue - onlineRevenue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+            r += `TOTAL REVENUE      : ₹${totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+            r += `  └─ Online (UPI)  : ₹${onlineRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+            r += `  └─ Cash Sales    : ₹${(totalRevenue - onlineRevenue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n\n`;
+            
             r += `Total Transactions : ${txCount}\n`;
             r += `Total Items Sold   : ${totalItemsSold}\n`;
             r += `Average Order Value: ₹${txCount > 0 ? (totalRevenue / txCount).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '0.00'}\n\n`;
@@ -483,19 +487,20 @@ document.addEventListener('DOMContentLoaded', () => {
             r += `New Purchase Orders: ${poCount}\n`;
             r += `Expenditure on POs : ₹${poValue.toLocaleString('en-IN')}\n\n`;
 
-            r += `ITEMIZED MOVEMENT:\n`;
-            const nameW = 22, dataW = 10;
-            r += `${'Item Name'.padEnd(nameW)} | ${'Open'.padEnd(dataW)} | ${'In'.padEnd(dataW)} | ${'Out'.padEnd(dataW)} | Close\n`;
-            r += `${'-'.repeat(nameW)}-+-${'-'.repeat(dataW)}-+-${'-'.repeat(dataW)}-+-${'-'.repeat(dataW)}-+------\n`;
+            r += `ITEMIZED MOVEMENT & REVENUE:\n`;
+            const nameW = 20, dataW = 6, revW = 10;
+            r += `${'Item Name'.padEnd(nameW)} | ${'Open'.padEnd(dataW)} | ${'In'.padEnd(dataW)} | ${'Out'.padEnd(dataW)} | ${'Close'.padEnd(dataW)} | Revenue\n`;
+            r += `${'-'.repeat(nameW)}-+-${'-'.repeat(dataW)}-+-${'-'.repeat(dataW)}-+-${'-'.repeat(dataW)}-+-${'-'.repeat(dataW)}-+-----------\n`;
 
             inventory.forEach(item => {
                 const sold = item.sessionSold || 0;
                 const purchased = item.sessionPurchased || 0;
                 const closing = item.stock;
                 const opening = closing + sold - purchased;
+                const itemRev = sold * item.price;
 
                 const name = (item.name.length > (nameW - 3) ? item.name.substring(0, nameW - 3) + '..' : item.name).padEnd(nameW);
-                r += `${name} | ${String(opening).padEnd(dataW)} | ${String(purchased).padEnd(dataW)} | ${String(sold).padEnd(dataW)} | ${closing}\n`;
+                r += `${name} | ${String(opening).padEnd(dataW)} | ${String(purchased).padEnd(dataW)} | ${String(sold).padEnd(dataW)} | ${String(closing).padEnd(dataW)} | ₹${itemRev.toLocaleString('en-IN')}\n`;
             });
             r += `\n`;
 
@@ -504,12 +509,24 @@ document.addEventListener('DOMContentLoaded', () => {
             r += `----------------------------------------------------\n`;
             if (topSellers.length > 0) {
                 topSellers.forEach((item, idx) => {
-                    r += `${idx + 1}. ${item.name} (${item.sessionSold} units sold)\n`;
+                    r += `${idx + 1}. ${item.name} (${item.sessionSold} units, ₹${(item.sessionSold * item.price).toLocaleString('en-IN')} revenue)\n`;
                 });
             } else {
                 r += `No sales activity recorded in this session.\n`;
             }
             r += `\n`;
+
+            // --- NEW: LOW STOCK ALERTS ---
+            const lowStock = inventory.filter(i => i.stock <= 5);
+            if (lowStock.length > 0) {
+                r += `----------------------------------------------------\n`;
+                r += `⚠️ ACTION REQUIRED: RESTOCK ALERTS\n`;
+                r += `----------------------------------------------------\n`;
+                lowStock.forEach(item => {
+                    r += `❗ ${item.name.padEnd(20)} : Only ${item.stock} left in stock!\n`;
+                });
+                r += `\n`;
+            }
 
             const restocked = inventory.filter(i => i.restockCount > 0);
             if (restocked.length > 0) {
@@ -540,7 +557,20 @@ document.addEventListener('DOMContentLoaded', () => {
             document.body.removeChild(a);
 
             if (!silent) {
-                showToast('✅ Report generated and downloaded!', 'success');
+                // --- CLOUD UPLOAD (FINALIZATION) ---
+                try {
+                    await supabaseClient
+                        .from('reports')
+                        .insert([{
+                            report_date: dateStr,
+                            content: r
+                        }]);
+                    showToast('✅ Report generated, downloaded, and synced to Cloud!', 'success');
+                } catch (cloudErr) {
+                    console.error("Cloud Report Upload Failed:", cloudErr);
+                    showToast('Report downloaded locally, but cloud sync failed.', 'warning');
+                }
+
                 resetRevenue();
                 resetSessionAnalytics();
             }
@@ -555,11 +585,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Logout & Report Buttons ---
     const reportBtn = document.getElementById('reportBtn');
     const headerReportBtn = document.getElementById('headerReportBtn');
-    const logoutBtn = document.getElementById('logoutBtn');
-    const headerLogoutBtn = document.getElementById('headerLogoutBtn');
 
-    if (reportBtn) reportBtn.addEventListener('click', (e) => { e.preventDefault(); generateAndDownloadReport(); });
-    if (headerReportBtn) headerReportBtn.addEventListener('click', (e) => { e.preventDefault(); generateAndDownloadReport(); });
+    function handleReportClick(e) {
+        e.preventDefault();
+        showPinModal(() => {
+            customConfirm("Report Action", "What would you like to do?", () => {
+                generateAndDownloadReport();
+            }, "Generate New", "Browse Archive", () => {
+                openReportArchive();
+            });
+        });
+    }
+
+    if (reportBtn) reportBtn.addEventListener('click', handleReportClick);
+    if (headerReportBtn) headerReportBtn.addEventListener('click', handleReportClick);
 
     async function processLogout(e) {
         if (e) e.preventDefault();
@@ -1334,6 +1373,159 @@ document.addEventListener('DOMContentLoaded', () => {
             pullFromSupabase(false);
         });
     }
+
+    // --- 🔐 Security PIN Modal Logic ---
+    const pinSecurityModal = document.getElementById('pinSecurityModal');
+    const pinBoxes = document.querySelectorAll('.pin-box');
+    const verifyPinBtn = document.getElementById('verifyPinBtn');
+    const cancelPinBtn = document.getElementById('cancelPinBtn');
+    let onPinSuccess = null;
+
+    function showPinModal(callback) {
+        onPinSuccess = callback;
+        pinSecurityModal.classList.add('open');
+        pinBoxes.forEach(box => box.value = '');
+        pinBoxes[0].focus();
+    }
+
+    pinBoxes.forEach((box, index) => {
+        box.addEventListener('input', (e) => {
+            if (e.target.value && index < pinBoxes.length - 1) {
+                pinBoxes[index + 1].focus();
+            }
+        });
+        box.addEventListener('keydown', (e) => {
+            if (e.key === 'Backspace' && !e.target.value && index > 0) {
+                pinBoxes[index - 1].focus();
+            }
+            if (e.key === 'Enter') verifyPin();
+        });
+    });
+
+    function verifyPin() {
+        const enteredPin = Array.from(pinBoxes).map(b => b.value).join('');
+        if (enteredPin === CONFIG.ADMIN.DEFAULT_PIN) {
+            pinSecurityModal.classList.remove('open');
+            if (onPinSuccess) onPinSuccess();
+        } else {
+            showToast("Incorrect PIN. Please try again.", "error");
+            pinBoxes.forEach(box => box.value = '');
+            pinBoxes[0].focus();
+        }
+    }
+
+    if (verifyPinBtn) verifyPinBtn.addEventListener('click', verifyPin);
+    if (cancelPinBtn) cancelPinBtn.addEventListener('click', () => pinSecurityModal.classList.remove('open'));
+
+    // --- 📂 Report Archive Logic ---
+    const reportArchiveModal = document.getElementById('reportArchiveModal');
+    const archiveContentBody = document.getElementById('archiveContentBody');
+    const archivePathLabel = document.getElementById('archivePathLabel');
+    const closeArchiveModal = document.getElementById('closeArchiveModal');
+
+    async function openReportArchive() {
+        reportArchiveModal.classList.add('open');
+        archiveContentBody.innerHTML = '<div style="display:flex; justify-content:center; padding: 50px;"><i class="ph ph-circle-notch spinning" style="font-size: 32px; color: var(--accent-brand);"></i></div>';
+        
+        try {
+            const { data: reports, error } = await supabaseClient
+                .from('reports')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+
+            if (!reports || reports.length === 0) {
+                archiveContentBody.innerHTML = '<div style="text-align:center; padding: 50px; color: var(--text-tertiary);"><i class="ph ph-mask-sad" style="font-size: 48px; margin-bottom: 16px;"></i><p>No finalized reports found in the cloud.</p><p style="font-size: 12px;">Click "Generate Report" at the end of your day to save your first one!</p></div>';
+                return;
+            }
+
+            renderArchiveFolders(reports);
+        } catch (err) {
+            console.error("Archive Error:", err);
+            showToast("Failed to load report archive.", "error");
+        }
+    }
+
+    function renderArchiveFolders(reports) {
+        archivePathLabel.textContent = "Browse folders by month";
+        const months = {};
+        
+        reports.forEach(report => {
+            const date = new Date(report.created_at);
+            const monthKey = date.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+            if (!months[monthKey]) months[monthKey] = [];
+            months[monthKey].push(report);
+        });
+
+        let html = '<div class="folder-grid">';
+        Object.keys(months).forEach(month => {
+            html += `
+                <div class="folder-card" data-month="${month}">
+                    <div class="folder-icon"><i class="ph-fill ph-folder"></i></div>
+                    <div class="folder-name">${month}</div>
+                    <div class="folder-count">${months[month].length} Reports Saved</div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        archiveContentBody.innerHTML = html;
+
+        // Add listeners
+        archiveContentBody.querySelectorAll('.folder-card').forEach(card => {
+            card.addEventListener('click', () => renderArchiveDays(months[card.dataset.month], card.dataset.month));
+        });
+    }
+
+    function renderArchiveDays(monthReports, monthName) {
+        archivePathLabel.textContent = `Reports for ${monthName}`;
+        
+        let html = `<button class="back-btn" id="backToFolders"><i class="ph ph-arrow-left"></i> Back to Months</button>`;
+        html += '<div class="report-list">';
+        monthReports.forEach(report => {
+            const day = report.report_date;
+            html += `
+                <div class="report-entry" data-id="${report.id}">
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <div style="width: 40px; height: 40px; background: rgba(99, 102, 241, 0.1); color: var(--accent-brand); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                            <i class="ph ph-file-text"></i>
+                        </div>
+                        <div>
+                            <div style="font-weight: 600; color: var(--text-primary);">${day}</div>
+                            <div style="font-size: 11px; color: var(--text-tertiary);">Finalized on ${new Date(report.created_at).toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'})}</div>
+                        </div>
+                    </div>
+                    <button class="primary-btn" style="height: 36px; padding: 0 12px; font-size: 12px;">Download</button>
+                </div>
+            `;
+        });
+        html += '</div>';
+        archiveContentBody.innerHTML = html;
+
+        document.getElementById('backToFolders').addEventListener('click', () => openReportArchive());
+        
+        archiveContentBody.querySelectorAll('.report-entry').forEach(entry => {
+            entry.addEventListener('click', () => {
+                const report = monthReports.find(r => r.id === entry.dataset.id);
+                downloadTextFile(`Taruchhaya_Archive_${report.report_date.replace(/ /g, '_')}.txt`, report.content);
+            });
+        });
+    }
+
+    function downloadTextFile(filename, content) {
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        showToast("✅ Report downloaded!", "success");
+    }
+
+    if (closeArchiveModal) closeArchiveModal.addEventListener('click', () => reportArchiveModal.classList.remove('open'));
 
 
 });

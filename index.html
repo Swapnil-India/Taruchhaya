@@ -537,6 +537,55 @@
     </button>
 
 
+    <!-- --- Report Archive Modal --- -->
+    <div class="modal-overlay" id="reportArchiveModal">
+        <div class="modal-content" style="width: 700px; max-width: 95vw;">
+            <div class="modal-header">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div
+                        style="width: 40px; height: 40px; background: var(--ai-gradient); border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white;">
+                        <i class="ph-fill ph-folders" style="font-size: 20px;"></i>
+                    </div>
+                    <div>
+                        <h3 style="font-size: 18px; font-weight: 700;">Report Archive</h3>
+                        <p style="font-size: 12px; color: var(--text-tertiary);" id="archivePathLabel">Browse past
+                            business performance</p>
+                    </div>
+                </div>
+                <button class="close-modal" id="closeArchiveModal"><i class="ph ph-x"></i></button>
+            </div>
+            <div class="modal-body" id="archiveContentBody" style="padding: 24px; min-height: 400px;">
+                <!-- Content will be injected by script.js -->
+            </div>
+        </div>
+    </div>
+
+    <!-- --- Security PIN Modal --- -->
+    <div class="modal-overlay" id="pinSecurityModal">
+        <div class="modal-content" style="width: 320px; text-align: center; padding: 32px;">
+            <div
+                style="width: 64px; height: 64px; background: rgba(99, 102, 241, 0.1); color: var(--accent-brand); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 32px; margin: 0 auto 20px;">
+                <i class="ph ph-lock-key"></i>
+            </div>
+            <h3 style="font-size: 20px; font-weight: 700; margin-bottom: 8px;">Security Access</h3>
+            <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 24px;">Please enter the administrator
+                PIN to view reports.</p>
+
+            <div id="pinInputContainer" style="display: flex; justify-content: center; gap: 12px; margin-bottom: 24px;">
+                <input type="password" maxlength="1" class="pin-box" data-index="0">
+                <input type="password" maxlength="1" class="pin-box" data-index="1">
+                <input type="password" maxlength="1" class="pin-box" data-index="2">
+                <input type="password" maxlength="1" class="pin-box" data-index="3">
+            </div>
+
+            <div style="display: flex; gap: 12px;">
+                <button class="btn-cancel" style="flex: 1; height: 44px;" id="cancelPinBtn">Cancel</button>
+                <button class="primary-btn" style="flex: 1; height: 44px; justify-content: center;"
+                    id="verifyPinBtn">Verify</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast Notification Container (managed by script.js) -->
     <div id="toast-container" class="toast-container"></div>
 </body>
