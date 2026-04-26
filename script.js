@@ -671,7 +671,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Calculate total inventory value
         const invValue = inventory.reduce((sum, item) => sum + (item.price * item.stock), 0);
         const invValueEl = document.getElementById('dashboardInvValue');
-        if (invValueEl) invValueEl.textContent = `₹${invValue.toLocaleString()}`;
+        if (invValueEl) invValueEl.textContent = `₹${invValue.toLocaleString('en-IN')}`;
 
         // Calculate low stock items (threshold < 5)
         const lowStockItems = inventory.filter(item => item.stock < 5);
@@ -691,7 +691,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Update Revenue
         const revenueEl = document.getElementById('dashboardRevenue');
-        if (revenueEl) revenueEl.textContent = `₹${totalRevenue.toLocaleString()}`;
+        if (revenueEl) revenueEl.textContent = `₹${totalRevenue.toLocaleString('en-IN')}`;
 
         renderAnalytics();
     }
@@ -836,6 +836,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const qtyToAdd = parseInt(document.getElementById('restockQtyAdd').value) || 0;
 
             if (item && qtyToAdd > 0) {
+                // Sanity check: prevent accidental astronomical quantities
+                if (qtyToAdd > 10000) {
+                    showToast("Quantity seems unusually high. Please verify or add in smaller batches.", "warning");
+                    return;
+                }
+                
                 item.stock += qtyToAdd;
 
                 // Track restock history and session analytics
@@ -1108,38 +1114,40 @@ document.addEventListener('DOMContentLoaded', () => {
         const target = e.target;
         
         // Barcode scanners are fast (usually < 50ms between keys)
-        if (currentTime - lastKeyTime > 100) {
-            barcodeBuffer = ""; // Reset if it's too slow (likely human typing)
+        const isFastKey = (currentTime - lastKeyTime) < 50;
+
+        if (currentTime - lastKeyTime > 150) {
+            barcodeBuffer = ""; // Reset if it's too slow (definitely human typing)
         }
 
         if (e.key === 'Enter') {
             if (barcodeBuffer.length > 2) {
                 e.preventDefault();
+                e.stopImmediatePropagation(); // Prevent triggering form submits
                 const code = barcodeBuffer;
                 barcodeBuffer = "";
 
-                // Fix: If focus is in a non-barcode input (like quantity), clear it
+                // If focus is in a regular input, clear any characters that bled through
                 if (target.tagName === 'INPUT' && !['posBarcodeInput', 'prodBarcode', 'editProdBarcode', 'globalSearch'].includes(target.id)) {
                     target.value = "";
                     target.blur();
                 }
 
-                // If focus is already in the dedicated POS input, its own listener handles it
-                if (target.id !== 'posBarcodeInput') {
-                    handleBarcode(code);
-                }
+                handleBarcode(code);
                 return;
             }
+            barcodeBuffer = ""; // Reset on Enter if not enough chars
         } else if (e.key.length === 1) {
             barcodeBuffer += e.key;
+            
+            // If it's a scanner (fast typing) and not a dedicated barcode input, 
+            // prevent the character from reaching the input field.
+            if (isFastKey && target.tagName === 'INPUT' && !['posBarcodeInput', 'prodBarcode', 'editProdBarcode', 'globalSearch'].includes(target.id)) {
+                e.preventDefault();
+            }
         }
         
         lastKeyTime = currentTime;
-
-        // Ignore global logic for normal typing in inputs
-        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.contentEditable === "true") {
-            return;
-        }
     });
 
     function addProductToCart(product) {
@@ -1179,7 +1187,7 @@ document.addEventListener('DOMContentLoaded', () => {
             posItemList.appendChild(tr);
         });
 
-        posTotalAmt.textContent = total.toLocaleString();
+        posTotalAmt.textContent = total.toLocaleString('en-IN');
     }
 
     window.updateCartQty = function (index, delta) {
