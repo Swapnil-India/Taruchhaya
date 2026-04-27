@@ -261,18 +261,31 @@ document.addEventListener('DOMContentLoaded', () => {
         if (dot) dot.classList.add('syncing'); // Start pulsing
 
         try {
-            // Sync Inventory using ID for stable conflict resolution
-            const { error: invError } = await supabaseClient
-                .from('inventory')
-                .upsert(inventory.map(item => ({
-                    id: item.id, // Use the local unique ID
+            // 🛡️ ID SANITIZER: Ensure all IDs are valid UUIDs before pushing
+            const sanitizedInventory = inventory.map(item => {
+                // If it's a legacy 'p123' style ID, generate a new UUID
+                // (Note: Supabase uuid columns will reject 'p' strings)
+                const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id);
+                if (!isUuid) {
+                    item.id = crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                        return v.toString(16);
+                    });
+                }
+                return {
+                    id: item.id,
                     name: item.name,
                     barcode: item.barcode,
                     category: item.category,
                     price: item.price,
                     stock: item.stock,
                     last_updated: new Date().toISOString()
-                })), { onConflict: 'id' });
+                };
+            });
+
+            const { error: invError } = await supabaseClient
+                .from('inventory')
+                .upsert(sanitizedInventory, { onConflict: 'id' });
 
             if (invError) throw invError;
             
@@ -285,7 +298,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             console.error("Supabase Sync Error:", err);
             updateCloudStatus(false);
-            showToast("Cloud sync failed. Check your connection.", "error");
+            const errorMsg = err.message || err.details || "Check your connection.";
+            showToast("Cloud sync failed: " + errorMsg, "error");
         } finally {
             if (dot) dot.classList.remove('syncing'); // Stop pulsing
         }
@@ -385,10 +399,20 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data) {
                 let localChanged = false;
                 
-                // 🛡️ SAFE MERGE LOGIC:
-                // 1. Add/Update items from Cloud to Local
+                // 🛡️ SAFE MERGE & RECONCILIATION LOGIC:
                 data.forEach(cloudItem => {
-                    const localItem = inventory.find(i => i.id === cloudItem.id);
+                    // 1. Try matching by ID (Best)
+                    let localItem = inventory.find(i => i.id === cloudItem.id);
+                    
+                    // 2. Fallback: Reconcile legacy 'p123' IDs with Cloud UUIDs using Barcode
+                    if (!localItem && cloudItem.barcode) {
+                        localItem = inventory.find(i => i.barcode === cloudItem.barcode && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(i.id));
+                        if (localItem) {
+                            console.log(`Supabase: Reconciling legacy item "${localItem.name}" with Cloud UUID.`);
+                            localItem.id = cloudItem.id; // Switch local to use the Cloud's official UUID
+                        }
+                    }
+
                     const mappedCloudItem = {
                         id: cloudItem.id,
                         name: cloudItem.name,
@@ -996,7 +1020,10 @@ document.addEventListener('DOMContentLoaded', () => {
     productForm.addEventListener('submit', (e) => {
         e.preventDefault();
         const newProduct = {
-            id: 'p' + Date.now(),
+            id: crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            }),
             name: document.getElementById('prodName').value,
             barcode: document.getElementById('prodBarcode').value.trim(),
             category: document.getElementById('prodCategory').value,
