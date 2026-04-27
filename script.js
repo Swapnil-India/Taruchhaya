@@ -257,37 +257,47 @@ document.addEventListener('DOMContentLoaded', () => {
     async function pushToSupabase(showSuccess = false) {
         if (!inventory || inventory.length === 0) return;
         
-        // 🧹 PERMANENT FIX: Deduplicate local inventory before pushing
-        // This merges products with the same name to prevent Cloud constraint errors
-        const cleaned = [];
-        const seenNames = new Set();
-        
-        inventory.forEach(item => {
-            const normalizedName = item.name.trim().toLowerCase();
-            if (seenNames.has(normalizedName)) {
-                // Duplicate found! Merge stock into the existing one
-                const existing = cleaned.find(i => i.name.trim().toLowerCase() === normalizedName);
-                if (existing) {
-                    existing.stock += item.stock;
-                    console.log(`Deduplication: Merged ${item.name} (Duplicate ID: ${item.id})`);
-                }
-            } else {
-                seenNames.add(normalizedName);
-                cleaned.push(item);
-            }
-        });
-
-        // Update local state with the cleaned/merged version
-        if (cleaned.length !== inventory.length) {
-            inventory = cleaned;
-            saveInventory(true); // Save local but don't re-trigger push loop
-        }
-
         const dot = document.getElementById('cloudStatus');
-        if (dot) dot.classList.add('syncing'); // Start pulsing
+        if (dot) dot.classList.add('syncing');
 
         try {
-            // 🛡️ ID SANITIZER: Ensure all IDs are valid UUIDs before pushing
+            // 1. 🔍 CLOUD RECONCILIATION: Fetch existing cloud names to prevent conflicts
+            const { data: cloudData, error: fetchError } = await supabaseClient
+                .from('inventory')
+                .select('id, name');
+            
+            if (!fetchError && cloudData) {
+                inventory.forEach(localItem => {
+                    const normalizedLocalName = localItem.name.trim().toLowerCase();
+                    const cloudMatch = cloudData.find(c => c.name.trim().toLowerCase() === normalizedLocalName);
+                    
+                    if (cloudMatch && cloudMatch.id !== localItem.id) {
+                        console.log(`Supabase: Aligning local ID for "${localItem.name}" to match Cloud.`);
+                        localItem.id = cloudMatch.id; // Align IDs to prevent "Duplicate Name" error
+                    }
+                });
+            }
+
+            // 2. 🧹 LOCAL DEDUPLICATION: Merge any remaining local name duplicates
+            const cleaned = [];
+            const seenNames = new Set();
+            inventory.forEach(item => {
+                const normalizedName = item.name.trim().toLowerCase();
+                if (seenNames.has(normalizedName)) {
+                    const existing = cleaned.find(i => i.name.trim().toLowerCase() === normalizedName);
+                    if (existing) existing.stock += item.stock;
+                } else {
+                    seenNames.add(normalizedName);
+                    cleaned.push(item);
+                }
+            });
+
+            if (cleaned.length !== inventory.length) {
+                inventory = cleaned;
+                saveInventory(true);
+            }
+
+            // 3. 🛡️ SANITIZE & UPSERT
             const sanitizedInventory = inventory.map(item => {
                 const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id);
                 if (!isUuid) {
@@ -296,9 +306,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         return v.toString(16);
                     });
                 }
-                // Ensure created_at exists
-                if (!item.created_at) item.created_at = Date.now();
-
                 return {
                     id: item.id,
                     name: item.name,
@@ -315,20 +322,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 .upsert(sanitizedInventory, { onConflict: 'id' });
 
             if (invError) throw invError;
-            
-            console.log("Supabase: Inventory synced.");
             updateCloudStatus(true);
-            
-            if (showSuccess) {
-                showToast("Data successfully uploaded to Cloud!", "success");
-            }
+            if (showSuccess) showToast("Cloud synchronized.", "success");
         } catch (err) {
             console.error("Supabase Sync Error:", err);
             updateCloudStatus(false);
-            const errorMsg = err.message || err.details || "Check your connection.";
-            showToast("Cloud sync failed: " + errorMsg, "error");
+            showToast("Sync Error: " + (err.message || "Connection lost"), "error");
         } finally {
-            if (dot) dot.classList.remove('syncing'); // Stop pulsing
+            if (dot) dot.classList.remove('syncing');
         }
     }
 
