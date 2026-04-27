@@ -210,23 +210,33 @@ document.addEventListener('DOMContentLoaded', () => {
         renderInventoryTable();
         populatePosSelect();
 
-        // Check if this is a fresh visit in a new tab session
-        // If so, reset the session-only metrics
+        // FIX: Only reset session counters on a TRUE new login, not every page reload.
+        // A real new login is detected by the absence of 'ti_session_active' in sessionStorage.
+        // sessionStorage is cleared when the browser tab is closed, or on logout.
         if (!sessionStorage.getItem('ti_session_active')) {
-            resetSessionAnalytics();
+            resetSessionCounters(); // Only resets counters, does NOT save to cloud
             sessionStorage.setItem('ti_session_active', 'true');
         }
 
-        // 🌟 IMPROVED SYNC: Always pull latest from cloud on start
-        pullFromSupabase();
-        checkForSupabaseUpdates(); // Initial check
-        
+        // 🌟 Always pull latest from cloud on start
+        await pullFromSupabase();
+
         // 🔄 REALTIME SUBSCRIPTION: Listen for changes from other devices
         initSupabaseRealtime();
-        
-        // ⏱️ PERIODIC SYNC: Fallback polling every 5 minutes
-        setInterval(() => checkForSupabaseUpdates(), 5 * 60 * 1000);
+
+        // ⏱️ PERIODIC SYNC: Poll every 30 seconds so Supabase dashboard changes reflect quickly
+        setInterval(() => pullFromSupabase(), 30 * 1000);
+
+        // 👁️ TAB FOCUS SYNC: Pull immediately whenever user switches back to this tab
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                pullFromSupabase();
+            }
+        });
     }
+
+    // FIX: Guard flag to prevent concurrent pull operations from stacking up
+    let _isSyncing = false;
 
     /**
      * Initializes Supabase Realtime subscription to listen for inventory changes.
@@ -238,15 +248,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 .channel('inventory_changes')
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, (payload) => {
                     console.log('Supabase: Realtime change detected!', payload);
-                    
-                    // If the change came from another device (count diff or timestamp)
-                    // We trigger a silent pull to refresh local state
+                    // Pull silently; guard prevents stack-up
                     pullFromSupabase();
-                    
-                    // Show a subtle toast if it's a new item or major update
-                    if (payload.eventType === 'INSERT') {
-                        showToast(`New product "${payload.new.name}" added on another device.`, "info");
-                    }
                 })
                 .subscribe();
         } catch (err) {
@@ -255,38 +258,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * PUSH: Saves local inventory to the cloud.
-     * Uses 'name' as the conflict key to match the cloud's unique constraint.
-     * Also syncs local IDs to match cloud IDs for future consistency.
+     * PUSH: Saves local inventory to the cloud (upsert by name).
+     * Safe to call with empty inventory — will not return early so cloud clears work.
      */
     async function pushToSupabase() {
-        if (!inventory || inventory.length === 0) return;
-
         const dot = document.getElementById('cloudStatus');
         if (dot) dot.classList.add('syncing');
 
         try {
-            // Step 1: Fetch current cloud state to align IDs
-            const { data: cloudData } = await supabaseClient
-                .from('inventory')
-                .select('id, name');
-
-            if (cloudData) {
-                // Align local IDs to match cloud IDs (by name match)
-                inventory.forEach(localItem => {
-                    const cloudMatch = cloudData.find(c =>
-                        c.name.trim().toLowerCase() === localItem.name.trim().toLowerCase()
-                    );
-                    if (cloudMatch && cloudMatch.id !== localItem.id) {
-                        localItem.id = cloudMatch.id;
-                    }
-                });
-                // Save locally with updated IDs (without triggering another push)
-                localStorage.setItem('taruchhaya_inventory', JSON.stringify(inventory));
-                idbSet('taruchhaya_inventory', inventory).catch(() => {});
+            if (!inventory || inventory.length === 0) {
+                // Nothing to push (e.g. after factory reset), just mark synced
+                updateCloudStatus(true);
+                return;
             }
 
-            // Step 2: Upsert using 'name' as conflict key — matches the DB constraint
+            // Upsert all local items using 'name' as conflict key
             const payload = inventory.map(item => ({
                 id: item.id,
                 name: item.name.trim(),
@@ -340,88 +326,104 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * PULL: Fetches cloud inventory and merges it into local state.
-     * Never deletes a locally-added item. Only adds/updates from cloud.
+     * PULL: Fetches cloud inventory and merges safely into local state.
+     *
+     * HOW DELETION DETECTION WORKS:
+     * - New products added THIS SESSION are tagged with `_pendingCloudSync = true` in memory.
+     * - This flag is NOT saved to localStorage/IndexedDB (it's session-only).
+     * - On pull, if an item is missing from cloud:
+     *   → If `_pendingCloudSync` is true  → it's a new local item not yet pushed → push it.
+     *   → If `_pendingCloudSync` is false/undefined → it was in cloud before and got deleted → remove it locally.
+     * - This works for ALL existing items (no migration needed) because items loaded from
+     *   storage never have `_pendingCloudSync` set.
      */
     async function pullFromSupabase() {
+        if (_isSyncing) return; // Prevent concurrent sync operations
+        _isSyncing = true;
+
+        const dot = document.getElementById('cloudStatus');
+        if (dot) dot.classList.add('syncing');
+
         try {
             const { data, error } = await supabaseClient.from('inventory').select('*');
             if (error) throw error;
-            if (!data) return;
+            if (!data) { _isSyncing = false; return; }
 
             let changed = false;
+            const cloudIds = new Set(data.map(d => d.id));
 
+            // Step 1: Merge all cloud items into local inventory
             data.forEach(cloudItem => {
-                // Match by ID first, then by name
+                // Match by ID first, then by name (handles ID alignment after first push)
                 let localItem = inventory.find(i => i.id === cloudItem.id);
                 if (!localItem) {
                     localItem = inventory.find(i =>
                         i.name.trim().toLowerCase() === cloudItem.name.trim().toLowerCase()
                     );
-                    if (localItem) localItem.id = cloudItem.id; // Adopt cloud ID
+                    if (localItem) {
+                        localItem.id = cloudItem.id; // Adopt the authoritative cloud ID
+                        localItem._pendingCloudSync = false; // Now confirmed in cloud
+                        changed = true;
+                    }
                 }
 
                 if (!localItem) {
-                    // New item from another device — add it
+                    // New item from cloud (added on another device or via Supabase dashboard)
                     inventory.push({
                         id: cloudItem.id,
                         name: cloudItem.name,
                         barcode: cloudItem.barcode || '',
                         category: cloudItem.category || 'General',
                         price: parseFloat(cloudItem.price) || 0,
-                        stock: parseInt(cloudItem.stock) || 0,
-                        created_at: Date.now()
+                        stock: parseInt(cloudItem.stock) || 0
+                        // No _pendingCloudSync — already confirmed in cloud
                     });
                     changed = true;
                 } else {
-                    // Update stock/price if cloud is different
-                    if (localItem.stock !== cloudItem.stock || localItem.price !== parseFloat(cloudItem.price)) {
-                        localItem.stock = cloudItem.stock;
-                        localItem.price = parseFloat(cloudItem.price);
+                    // Item exists in both — clear pending flag and sync values from cloud
+                    localItem._pendingCloudSync = false;
+                    const cloudPrice = parseFloat(cloudItem.price) || 0;
+                    const cloudStock = parseInt(cloudItem.stock) || 0;
+                    if (localItem.stock !== cloudStock || localItem.price !== cloudPrice) {
+                        localItem.stock = cloudStock;
+                        localItem.price = cloudPrice;
                         changed = true;
                     }
                 }
             });
 
-            // Handle items deleted on another device
-            const cloudIds = data.map(d => d.id);
-            const newInventory = inventory.filter(localItem => {
-                const isInCloud = cloudIds.includes(localItem.id);
-                const isRecentlyAdded = (localItem.created_at || 0) > (Date.now() - 60000); // Added in last 60s
-                return isInCloud || isRecentlyAdded;
-            });
+            // Step 2: Handle items not in cloud
+            const itemsNotInCloud = inventory.filter(i => !cloudIds.has(i.id));
+            const itemsToPush   = itemsNotInCloud.filter(i => i._pendingCloudSync === true);
+            const itemsToDelete = itemsNotInCloud.filter(i => i._pendingCloudSync !== true);
 
-            if (newInventory.length !== inventory.length) {
-                inventory = newInventory;
+            // Remove items that are confirmed deleted from cloud
+            if (itemsToDelete.length > 0) {
+                inventory = inventory.filter(i => cloudIds.has(i.id) || i._pendingCloudSync === true);
                 changed = true;
+                console.log(`Removed ${itemsToDelete.length} item(s) deleted from cloud.`);
             }
 
+            // Step 3: Save local state (without cloud push to avoid loops)
             if (changed) {
-                saveInventory(true); // Save locally, don't re-push
+                saveLocalOnly();
             }
 
-            // Push any local-only items to cloud
-            const localOnlyItems = inventory.filter(i => !cloudIds.includes(i.id));
-            if (localOnlyItems.length > 0) {
-                pushToSupabase();
+            updateCloudStatus(true);
+
+            // Step 4: Push any locally-added items that aren't in cloud yet
+            if (itemsToPush.length > 0) {
+                console.log(`Pushing ${itemsToPush.length} new local item(s) to cloud...`);
+                await pushToSupabase();
             }
 
         } catch (err) {
             console.error('Cloud pull failed:', err);
-        }
-    }
-
-    async function checkForSupabaseUpdates() {
-        try {
-            const { data, error } = await supabaseClient.from('inventory').select('id');
-            if (error || !data) return;
-
-            const localIds = inventory.map(i => i.id).sort().join(',');
-            const cloudIds = data.map(d => d.id).sort().join(',');
-
-            if (localIds !== cloudIds) pullFromSupabase();
-        } catch (err) {
-            console.warn('Update check failed silently:', err);
+            updateCloudStatus(false);
+        } finally {
+            _isSyncing = false;
+            const dot2 = document.getElementById('cloudStatus');
+            if (dot2) dot2.classList.remove('syncing');
         }
     }
 
@@ -437,13 +439,33 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    /**
+     * Saves inventory to localStorage + IndexedDB and updates UI.
+     * @param {boolean} skipCloud - If true, does NOT push to Supabase.
+     */
     function saveInventory(skipCloud = false) {
-        localStorage.setItem('taruchhaya_inventory', JSON.stringify(inventory));
-        idbSet('taruchhaya_inventory', inventory).catch(err => console.error("IDB Save Error", err));
+        saveLocalOnly();
+        if (!skipCloud) pushToSupabase();
+    }
+
+    /**
+     * Saves inventory locally (localStorage + IDB) and refreshes UI.
+     * Does NOT touch the cloud. Use this for cloud-triggered updates to
+     * avoid infinite push-pull loops.
+     */
+    function saveLocalOnly() {
+        // Strip the in-memory session flag before persisting — it must never be saved to storage.
+        // On next load, items from storage will have no _pendingCloudSync, which is correct:
+        // they are treated as "previously synced" and will be deleted if cloud has removed them.
+        const toSave = inventory.map(item => {
+            const { _pendingCloudSync, cloudConfirmed, ...rest } = item;
+            return rest;
+        });
+        localStorage.setItem('taruchhaya_inventory', JSON.stringify(toSave));
+        idbSet('taruchhaya_inventory', toSave).catch(err => console.error("IDB Save Error", err));
         updateDashboard();
         renderInventoryTable();
         populatePosSelect();
-        if (!skipCloud) pushToSupabase();
     }
 
     function saveRevenue(amount, isOnline = false) {
@@ -457,7 +479,6 @@ document.addEventListener('DOMContentLoaded', () => {
         idbSet('taruchhaya_online_revenue', onlineRevenue).catch(err => console.error("IDB Save Error", err));
 
         updateDashboard();
-        pushToSupabase();
     }
 
     /**
@@ -474,26 +495,28 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * Resets session-specific analytics (counters for the current day/session)
-     * without deleting the actual inventory products or overall stock.
+     * Resets ONLY the in-memory session counters (sold/purchased/restock).
+     * Does NOT save to cloud — called only on genuine new logins, not page reloads.
      */
-    function resetSessionAnalytics() {
-        console.log("Resetting session analytics...");
-
-        // Reset session-specific counters in inventory items
+    function resetSessionCounters() {
+        console.log("Resetting session counters (new login)...");
         inventory.forEach(item => {
             item.sessionSold = 0;
             item.sessionPurchased = 0;
             item.restockCount = 0;
         });
-
-        // Clear session tracking variables
         sessionStorage.setItem('ti_tx_count', '0');
         sessionStorage.setItem('ti_po_count', '0');
         sessionStorage.setItem('ti_po_value', '0');
+        // Save locally only — cloud should not be affected by session counter resets
+        saveLocalOnly();
+    }
 
-        // Push changes to storage
-        saveInventory();
+    /**
+     * Full session analytics reset (used by report generation).
+     */
+    function resetSessionAnalytics() {
+        resetSessionCounters();
     }
 
     // --- Navigation & Views ---
@@ -955,15 +978,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const pinInput = document.getElementById('adminPinInput');
             const pinError = document.getElementById('pinError');
 
-            // Set the Admin PIN here
             if (pinInput.value === CONFIG.ADMIN.DEFAULT_PIN) {
                 inventory = [];
-                totalRevenue = 0;
+                // FIX: Use resetRevenue() to zero out values — saveRevenue(0) would ADD 0
+                resetRevenue();
                 localStorage.removeItem('taruchhaya_inventory');
                 localStorage.removeItem('taruchhaya_revenue');
-                clearSupabaseInventory(); // Clear cloud data
-                saveInventory();
-                saveRevenue(0);
+                localStorage.removeItem('taruchhaya_online_revenue');
+                idbSet('taruchhaya_inventory', []).catch(() => {});
+                // Clear from cloud as well
+                clearSupabaseInventory();
+                // Refresh UI
+                saveLocalOnly();
 
                 pinInput.value = '';
                 pinError.style.display = 'none';
@@ -1004,7 +1030,8 @@ document.addEventListener('DOMContentLoaded', () => {
             barcode: barcode,
             category: document.getElementById('prodCategory').value,
             price: parseFloat(document.getElementById('prodPrice').value),
-            stock: parseInt(document.getElementById('prodStock').value)
+            stock: parseInt(document.getElementById('prodStock').value),
+            _pendingCloudSync: true  // In-memory flag: this item hasn't been pushed to cloud yet
         };
 
         inventory.push(newProduct);
@@ -1265,10 +1292,7 @@ document.addEventListener('DOMContentLoaded', () => {
         sessionStorage.setItem('ti_tx_count', (txCount + 1).toString());
 
         saveRevenue(currentTotal, isOnline);
-        saveInventory();
-
-        // Sync transaction to Supabase
-        pushTransactionToSupabase(currentTotal, isOnline ? 'online' : 'cash', currentCart);
+        saveInventory(); // Pushes updated stock levels to cloud
 
         currentCart = [];
         renderCart();
@@ -1669,25 +1693,33 @@ document.addEventListener('DOMContentLoaded', () => {
             confirmDeleteReportBtn.disabled = true;
 
             try {
-                // Perform the delete operation
+                // Determine if reportId should be a number or string
+                // If it's a number-only string, try parsing it
+                const finalId = /^\d+$/.test(reportId) ? parseInt(reportId) : reportId;
+
+                console.log(`Attempting to delete report with ID: ${finalId} (type: ${typeof finalId})`);
+
                 const { error, count } = await supabaseClient
                     .from('reports')
-                    .delete({ count: 'exact' })
-                    .eq('id', reportId);
+                    .delete()
+                    .eq('id', finalId);
 
                 if (error) throw error;
 
-                // Check if any rows were actually deleted
-                // count will be null if we don't request it, but we requested 'exact'
-                showToast("Report deleted successfully from cloud.", "success");
-                closeModal(deleteReportConfirmModal);
+                showToast("Report deleted successfully.", "success");
                 
-                // Reset the ID and refresh
+                // Close modal using the common function
+                if (deleteReportConfirmModal) {
+                    deleteReportConfirmModal.classList.remove('open');
+                }
+                
                 window.reportToDelete = null;
-                openReportArchive(); 
+                
+                // Refresh the archive view immediately
+                await openReportArchive(); 
             } catch (err) {
-                console.error("Delete Error details:", err);
-                showToast(`Delete failed: ${err.message || 'Check connection or permissions'}`, "error");
+                console.error("Delete Error:", err);
+                showToast(`Delete failed: ${err.message || 'Error occurred'}`, "error");
             } finally {
                 confirmDeleteReportBtn.innerHTML = 'Yes, Delete';
                 confirmDeleteReportBtn.disabled = false;
