@@ -137,19 +137,6 @@
                 </div>
             </header>
 
-            <!-- ✨ Supabase Cloud Sync Banner -->
-            <div id="supabaseUpdateBanner" class="cloud-sync-banner" style="display: none;">
-                <div class="banner-content">
-                    <div class="banner-icon"><i class="ph-fill ph-cloud-arrow-down"></i></div>
-                    <div class="banner-text">
-                        <strong>New Updates Available</strong>
-                        <p>Inventory data has changed on another device.</p>
-                    </div>
-                </div>
-                <button class="primary-btn" id="syncSupabaseNowBtn">
-                    <i class="ph ph-arrows-counter-clockwise"></i> Sync Now
-                </button>
-            </div>
 
             <!-- Overview Dashboard View -->
             <div id="view-dashboard" class="view-container active">
@@ -264,18 +251,12 @@
 
                 <div class="glass-panel" style="padding: 32px; margin-bottom: 24px;">
                     <h3 style="margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
-                        <i class="ph ph-cloud-arrow-up" style="color: var(--accent-brand);"></i>
+                        <i class="ph ph-cloud-check" style="color: var(--accent-brand);"></i>
                         Cloud Synchronization
                     </h3>
-                    <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 20px;">
-                        Force a manual pull from Supabase to ensure your data is synchronized across all devices.
+                    <p style="color: var(--text-secondary); font-size: 14px;">
+                        Your system is currently in <strong>Automatic Real-time Sync</strong> mode. All changes are being backed up to the cloud instantly.
                     </p>
-                    <button class="primary-btn" id="settingsSyncBtn">
-                        <i class="ph ph-arrows-counter-clockwise"></i> Sync with Cloud
-                    </button>
-                    <button class="secondary-btn" id="settingsPushBtn" style="margin-top: 12px; border-color: var(--accent-brand); color: var(--accent-brand); width: 100%; justify-content: center;">
-                        <i class="ph ph-cloud-arrow-up"></i> Force Upload to Cloud
-                    </button>
                 </div>
 
                 <div class="glass-panel" style="padding: 32px; border-color: rgba(239, 68, 68, 0.2);">

@@ -257,6 +257,32 @@ document.addEventListener('DOMContentLoaded', () => {
     async function pushToSupabase(showSuccess = false) {
         if (!inventory || inventory.length === 0) return;
         
+        // 🧹 PERMANENT FIX: Deduplicate local inventory before pushing
+        // This merges products with the same name to prevent Cloud constraint errors
+        const cleaned = [];
+        const seenNames = new Set();
+        
+        inventory.forEach(item => {
+            const normalizedName = item.name.trim().toLowerCase();
+            if (seenNames.has(normalizedName)) {
+                // Duplicate found! Merge stock into the existing one
+                const existing = cleaned.find(i => i.name.trim().toLowerCase() === normalizedName);
+                if (existing) {
+                    existing.stock += item.stock;
+                    console.log(`Deduplication: Merged ${item.name} (Duplicate ID: ${item.id})`);
+                }
+            } else {
+                seenNames.add(normalizedName);
+                cleaned.push(item);
+            }
+        });
+
+        // Update local state with the cleaned/merged version
+        if (cleaned.length !== inventory.length) {
+            inventory = cleaned;
+            saveInventory(true); // Save local but don't re-trigger push loop
+        }
+
         const dot = document.getElementById('cloudStatus');
         if (dot) dot.classList.add('syncing'); // Start pulsing
 
@@ -356,14 +382,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (inventory.length === 0) {
                     pullFromSupabase(true);
                 }
-                // If local exists but counts or data differ, show the banner
                 else {
                     const localHash = JSON.stringify(inventory.map(i => i.id).sort());
                     const cloudHash = JSON.stringify(data.map(d => d.id).sort());
                     
                     if (localHash !== cloudHash) {
-                        const banner = document.getElementById('supabaseUpdateBanner');
-                        if (banner) banner.style.display = 'flex';
+                        // 🌟 AUTO-UPDATE: Just pull immediately instead of showing a banner
+                        pullFromSupabase(true);
                     }
                 }
             }
@@ -499,7 +524,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateDashboard();
         renderInventoryTable();
         populatePosSelect();
-        if (!skipCloud) pushToSupabase(true);
+        if (!skipCloud) pushToSupabase(false); // Make it silent
     }
 
     function saveRevenue(amount, isOnline = false) {
@@ -513,7 +538,7 @@ document.addEventListener('DOMContentLoaded', () => {
         idbSet('taruchhaya_online_revenue', onlineRevenue).catch(err => console.error("IDB Save Error", err));
 
         updateDashboard();
-        pushToSupabase(true);
+        pushToSupabase(false); // Make it silent
     }
 
     /**
@@ -1036,10 +1061,17 @@ document.addEventListener('DOMContentLoaded', () => {
     productForm.addEventListener('submit', (e) => {
         e.preventDefault();
         const barcode = document.getElementById('prodBarcode').value.trim();
+        const name = document.getElementById('prodName').value.trim();
         
-        // 🛡️ DUPLICATE PREVENTION: Check if barcode already exists
+        // 🛡️ DUPLICATE PREVENTION: Barcode
         if (barcode && inventory.some(item => item.barcode === barcode)) {
-            showToast("A product with this barcode already exists. Please use a unique barcode.", "error");
+            showToast("A product with this barcode already exists.", "error");
+            return;
+        }
+
+        // 🛡️ DUPLICATE PREVENTION: Name (Required by Cloud Constraint)
+        if (inventory.some(item => item.name.toLowerCase() === name.toLowerCase())) {
+            showToast(`A product named "${name}" already exists. Please use a unique name.`, "error");
             return;
         }
 
@@ -1049,7 +1081,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return v.toString(16);
             }),
             created_at: Date.now(),
-            name: document.getElementById('prodName').value,
+            name: name,
             barcode: barcode,
             category: document.getElementById('prodCategory').value,
             price: parseFloat(document.getElementById('prodPrice').value),
@@ -1068,16 +1100,23 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault();
             const id = document.getElementById('editProdId').value;
             const barcode = document.getElementById('editProdBarcode').value.trim();
+            const name = document.getElementById('editProdName').value.trim();
             const item = inventory.find(p => p.id === id);
 
             if (item) {
-                // 🛡️ DUPLICATE PREVENTION: Check if barcode is used by ANOTHER product
+                // 🛡️ DUPLICATE PREVENTION: Barcode
                 if (barcode && inventory.some(p => p.barcode === barcode && p.id !== id)) {
                     showToast("This barcode is already assigned to another product.", "error");
                     return;
                 }
 
-                item.name = document.getElementById('editProdName').value;
+                // 🛡️ DUPLICATE PREVENTION: Name
+                if (inventory.some(p => p.name.toLowerCase() === name.toLowerCase() && p.id !== id)) {
+                    showToast(`Another product is already named "${name}".`, "error");
+                    return;
+                }
+
+                item.name = name;
                 item.barcode = barcode;
                 item.category = document.getElementById('editProdCategory').value;
                 item.price = parseFloat(document.getElementById('editProdPrice').value);
