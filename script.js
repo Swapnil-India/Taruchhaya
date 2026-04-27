@@ -218,7 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // 🌟 IMPROVED SYNC: Always pull latest from cloud on start
-        pullFromSupabase(true);
+        pullFromSupabase();
         checkForSupabaseUpdates(); // Initial check
         
         // 🔄 REALTIME SUBSCRIPTION: Listen for changes from other devices
@@ -241,7 +241,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     // If the change came from another device (count diff or timestamp)
                     // We trigger a silent pull to refresh local state
-                    pullFromSupabase(true);
+                    pullFromSupabase();
                     
                     // Show a subtle toast if it's a new item or major update
                     if (payload.eventType === 'INSERT') {
@@ -254,80 +254,59 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function pushToSupabase(showSuccess = false) {
+    /**
+     * PUSH: Saves local inventory to the cloud.
+     * Uses 'name' as the conflict key to match the cloud's unique constraint.
+     * Also syncs local IDs to match cloud IDs for future consistency.
+     */
+    async function pushToSupabase() {
         if (!inventory || inventory.length === 0) return;
-        
+
         const dot = document.getElementById('cloudStatus');
         if (dot) dot.classList.add('syncing');
 
         try {
-            // 1. 🔍 CLOUD RECONCILIATION: Fetch existing cloud names to prevent conflicts
-            const { data: cloudData, error: fetchError } = await supabaseClient
+            // Step 1: Fetch current cloud state to align IDs
+            const { data: cloudData } = await supabaseClient
                 .from('inventory')
                 .select('id, name');
-            
-            if (!fetchError && cloudData) {
+
+            if (cloudData) {
+                // Align local IDs to match cloud IDs (by name match)
                 inventory.forEach(localItem => {
-                    const normalizedLocalName = localItem.name.trim().toLowerCase();
-                    const cloudMatch = cloudData.find(c => c.name.trim().toLowerCase() === normalizedLocalName);
-                    
+                    const cloudMatch = cloudData.find(c =>
+                        c.name.trim().toLowerCase() === localItem.name.trim().toLowerCase()
+                    );
                     if (cloudMatch && cloudMatch.id !== localItem.id) {
-                        console.log(`Supabase: Aligning local ID for "${localItem.name}" to match Cloud.`);
-                        localItem.id = cloudMatch.id; // Align IDs to prevent "Duplicate Name" error
+                        localItem.id = cloudMatch.id;
                     }
                 });
+                // Save locally with updated IDs (without triggering another push)
+                localStorage.setItem('taruchhaya_inventory', JSON.stringify(inventory));
+                idbSet('taruchhaya_inventory', inventory).catch(() => {});
             }
 
-            // 2. 🧹 LOCAL DEDUPLICATION: Merge any remaining local name duplicates
-            const cleaned = [];
-            const seenNames = new Set();
-            inventory.forEach(item => {
-                const normalizedName = item.name.trim().toLowerCase();
-                if (seenNames.has(normalizedName)) {
-                    const existing = cleaned.find(i => i.name.trim().toLowerCase() === normalizedName);
-                    if (existing) existing.stock += item.stock;
-                } else {
-                    seenNames.add(normalizedName);
-                    cleaned.push(item);
-                }
-            });
+            // Step 2: Upsert using 'name' as conflict key — matches the DB constraint
+            const payload = inventory.map(item => ({
+                id: item.id,
+                name: item.name.trim(),
+                barcode: item.barcode || '',
+                category: item.category || 'General',
+                price: parseFloat(item.price) || 0,
+                stock: parseInt(item.stock) || 0,
+                last_updated: new Date().toISOString()
+            }));
 
-            if (cleaned.length !== inventory.length) {
-                inventory = cleaned;
-                saveInventory(true);
-            }
-
-            // 3. 🛡️ SANITIZE & UPSERT
-            const sanitizedInventory = inventory.map(item => {
-                const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id);
-                if (!isUuid) {
-                    item.id = crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-                        return v.toString(16);
-                    });
-                }
-                return {
-                    id: item.id,
-                    name: item.name,
-                    barcode: item.barcode,
-                    category: item.category,
-                    price: item.price,
-                    stock: item.stock,
-                    last_updated: new Date().toISOString()
-                };
-            });
-
-            const { error: invError } = await supabaseClient
+            const { error } = await supabaseClient
                 .from('inventory')
-                .upsert(sanitizedInventory, { onConflict: 'id' });
+                .upsert(payload, { onConflict: 'name' });
 
-            if (invError) throw invError;
+            if (error) throw error;
             updateCloudStatus(true);
-            if (showSuccess) showToast("Cloud synchronized.", "success");
+
         } catch (err) {
-            console.error("Supabase Sync Error:", err);
+            console.error('Cloud push failed:', err);
             updateCloudStatus(false);
-            showToast("Sync Error: " + (err.message || "Connection lost"), "error");
         } finally {
             if (dot) dot.classList.remove('syncing');
         }
@@ -338,172 +317,111 @@ document.addEventListener('DOMContentLoaded', () => {
         if (dot) {
             dot.style.backgroundColor = isOk ? 'var(--accent-success)' : 'var(--accent-danger)';
             dot.style.boxShadow = isOk ? '0 0 8px var(--accent-success)' : '0 0 8px var(--accent-danger)';
-            dot.title = isOk ? 'Cloud Connection: Active' : 'Cloud Connection: Error';
+            dot.title = isOk ? 'Cloud: Synced' : 'Cloud: Error';
         }
     }
 
     async function deleteFromSupabase(id) {
         try {
-            const { error } = await supabaseClient
-                .from('inventory')
-                .delete()
-                .eq('id', id);
+            const { error } = await supabaseClient.from('inventory').delete().eq('id', id);
             if (error) throw error;
-            console.log(`Supabase: Deleted item ${id}`);
         } catch (err) {
-            console.error("Supabase Delete Error:", err);
+            console.error('Cloud delete failed:', err);
         }
     }
 
     async function clearSupabaseInventory() {
         try {
-            // Deleting all records (where id is not null)
-            const { error } = await supabaseClient
-                .from('inventory')
-                .delete()
-                .neq('id', '0');
+            const { error } = await supabaseClient.from('inventory').delete().neq('id', '0');
             if (error) throw error;
-            console.log("Supabase: Inventory cleared.");
         } catch (err) {
-            console.error("Supabase Clear Error:", err);
+            console.error('Cloud clear failed:', err);
+        }
+    }
+
+    /**
+     * PULL: Fetches cloud inventory and merges it into local state.
+     * Never deletes a locally-added item. Only adds/updates from cloud.
+     */
+    async function pullFromSupabase() {
+        try {
+            const { data, error } = await supabaseClient.from('inventory').select('*');
+            if (error) throw error;
+            if (!data) return;
+
+            let changed = false;
+
+            data.forEach(cloudItem => {
+                // Match by ID first, then by name
+                let localItem = inventory.find(i => i.id === cloudItem.id);
+                if (!localItem) {
+                    localItem = inventory.find(i =>
+                        i.name.trim().toLowerCase() === cloudItem.name.trim().toLowerCase()
+                    );
+                    if (localItem) localItem.id = cloudItem.id; // Adopt cloud ID
+                }
+
+                if (!localItem) {
+                    // New item from another device — add it
+                    inventory.push({
+                        id: cloudItem.id,
+                        name: cloudItem.name,
+                        barcode: cloudItem.barcode || '',
+                        category: cloudItem.category || 'General',
+                        price: parseFloat(cloudItem.price) || 0,
+                        stock: parseInt(cloudItem.stock) || 0,
+                        created_at: Date.now()
+                    });
+                    changed = true;
+                } else {
+                    // Update stock/price if cloud is different
+                    if (localItem.stock !== cloudItem.stock || localItem.price !== parseFloat(cloudItem.price)) {
+                        localItem.stock = cloudItem.stock;
+                        localItem.price = parseFloat(cloudItem.price);
+                        changed = true;
+                    }
+                }
+            });
+
+            // Handle items deleted on another device
+            const cloudIds = data.map(d => d.id);
+            const newInventory = inventory.filter(localItem => {
+                const isInCloud = cloudIds.includes(localItem.id);
+                const isRecentlyAdded = (localItem.created_at || 0) > (Date.now() - 60000); // Added in last 60s
+                return isInCloud || isRecentlyAdded;
+            });
+
+            if (newInventory.length !== inventory.length) {
+                inventory = newInventory;
+                changed = true;
+            }
+
+            if (changed) {
+                saveInventory(true); // Save locally, don't re-push
+            }
+
+            // Push any local-only items to cloud
+            const localOnlyItems = inventory.filter(i => !cloudIds.includes(i.id));
+            if (localOnlyItems.length > 0) {
+                pushToSupabase();
+            }
+
+        } catch (err) {
+            console.error('Cloud pull failed:', err);
         }
     }
 
     async function checkForSupabaseUpdates() {
         try {
-            // Quick check: compare counts or fetch metadata
-            const { data, error } = await supabaseClient
-                .from('inventory')
-                .select('id');
+            const { data, error } = await supabaseClient.from('inventory').select('id');
+            if (error || !data) return;
 
-            if (error) throw error;
+            const localIds = inventory.map(i => i.id).sort().join(',');
+            const cloudIds = data.map(d => d.id).sort().join(',');
 
-            if (data && data.length > 0) {
-                // If local inventory is empty, pull silently and immediately
-                if (inventory.length === 0) {
-                    pullFromSupabase(true);
-                }
-                else {
-                    const localHash = JSON.stringify(inventory.map(i => i.id).sort());
-                    const cloudHash = JSON.stringify(data.map(d => d.id).sort());
-                    
-                    if (localHash !== cloudHash) {
-                        // 🌟 AUTO-UPDATE: Just pull immediately instead of showing a banner
-                        pullFromSupabase(true);
-                    }
-                }
-            }
+            if (localIds !== cloudIds) pullFromSupabase();
         } catch (err) {
-            // Silently fail update check to avoid annoying user on bad networks
-            console.warn("Could not check for cloud updates:", err);
-        }
-    }
-
-    async function pushTransactionToSupabase(amount, method, items) {
-        try {
-            const { error } = await supabaseClient
-                .from('transactions')
-                .insert({
-                    total_amount: amount,
-                    payment_method: method,
-                    items: items
-                });
-            if (error) throw error;
-            console.log("Supabase: Transaction recorded.");
-        } catch (err) {
-            console.error("Supabase Transaction Error:", err);
-        }
-    }
-
-    async function pullFromSupabase(silent = false) {
-        try {
-            const { data, error } = await supabaseClient
-                .from('inventory')
-                .select('*');
-
-            if (error) throw error;
-
-            if (data) {
-                let localChanged = false;
-                
-                // 🛡️ SMART SYNC LOGIC:
-                const lastSyncTime = parseInt(localStorage.getItem('last_sync_time') || '0');
-                const cloudIds = data.map(d => d.id);
-                
-                // 1. Handle Deletions (Items in local but NOT in cloud)
-                inventory = inventory.filter(localItem => {
-                    if (cloudIds.includes(localItem.id)) return true;
-                    
-                    // If not in cloud, was it just added locally?
-                    const isNewLocal = (localItem.created_at || 0) > lastSyncTime;
-                    if (isNewLocal) {
-                        console.log(`Supabase: Keeping new local item "${localItem.name}"`);
-                        return true;
-                    }
-                    
-                    // It's an old item missing from cloud -> It was deleted elsewhere
-                    console.log(`Supabase: Syncing deletion of "${localItem.name}"`);
-                    localChanged = true;
-                    return false;
-                });
-
-                // 2. Add/Update items from Cloud to Local
-                data.forEach(cloudItem => {
-                    let localItem = inventory.find(i => i.id === cloudItem.id);
-                    
-                    if (!localItem && cloudItem.barcode) {
-                        localItem = inventory.find(i => i.barcode === cloudItem.barcode && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(i.id));
-                        if (localItem) {
-                            localItem.id = cloudItem.id;
-                        }
-                    }
-
-                    const mappedCloudItem = {
-                        id: cloudItem.id,
-                        name: cloudItem.name,
-                        barcode: cloudItem.barcode,
-                        category: cloudItem.category,
-                        price: parseFloat(cloudItem.price),
-                        stock: cloudItem.stock,
-                        created_at: lastSyncTime // Assume it exists if in cloud
-                    };
-
-                    if (!localItem) {
-                        inventory.push(mappedCloudItem);
-                        localChanged = true;
-                    } else {
-                        const isDifferent = localItem.name !== mappedCloudItem.name || 
-                                           localItem.stock !== mappedCloudItem.stock || 
-                                           localItem.price !== mappedCloudItem.price;
-                        
-                        if (isDifferent) {
-                            Object.assign(localItem, mappedCloudItem);
-                            localChanged = true;
-                        }
-                    }
-                });
-
-                // Update Sync Timestamp
-                localStorage.setItem('last_sync_time', Date.now().toString());
-
-                // 3. Trigger push for any local-only items we kept
-                const localOnly = inventory.filter(i => !cloudIds.includes(i.id));
-                if (localOnly.length > 0) {
-                    pushToSupabase(false);
-                }
-
-                if (localChanged) {
-                    saveInventory(true); // Save local changes but don't re-push the whole thing
-                    if (!silent) showToast("Synchronization complete. Data merged safely.", "success");
-                } else if (!silent) {
-                    showToast("Your data is already safe and up to date.", "info");
-                }
-            }
-        } catch (err) {
-            if (!silent) {
-                console.error("Supabase Pull Error:", err);
-                showToast("Could not reach Cloud. Using local data.", "warning");
-            }
+            console.warn('Update check failed silently:', err);
         }
     }
 
@@ -525,7 +443,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateDashboard();
         renderInventoryTable();
         populatePosSelect();
-        if (!skipCloud) pushToSupabase(false); // Make it silent
+        if (!skipCloud) pushToSupabase();
     }
 
     function saveRevenue(amount, isOnline = false) {
@@ -539,7 +457,7 @@ document.addEventListener('DOMContentLoaded', () => {
         idbSet('taruchhaya_online_revenue', onlineRevenue).catch(err => console.error("IDB Save Error", err));
 
         updateDashboard();
-        pushToSupabase(false); // Make it silent
+        pushToSupabase();
     }
 
     /**
@@ -1576,35 +1494,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 
-    // --- Supabase Sync Listeners ---
-    const syncSupabaseNowBtn = document.getElementById('syncSupabaseNowBtn');
-    if (syncSupabaseNowBtn) {
-        syncSupabaseNowBtn.addEventListener('click', () => {
-            syncSupabaseNowBtn.innerHTML = '<i class="ph ph-circle-notch spinning"></i> Syncing...';
-            syncSupabaseNowBtn.disabled = true;
-            pullFromSupabase(false).finally(() => {
-                syncSupabaseNowBtn.innerHTML = '<i class="ph ph-arrows-counter-clockwise"></i> Sync Now';
-                syncSupabaseNowBtn.disabled = false;
-                document.getElementById('supabaseUpdateBanner').style.display = 'none';
-            });
-        });
-    }
 
-    const settingsPushBtn = document.getElementById('settingsPushBtn');
-    if (settingsPushBtn) {
-        settingsPushBtn.addEventListener('click', () => {
-            settingsPushBtn.innerHTML = '<i class="ph ph-circle-notch spinning"></i> Pushing...';
-            settingsPushBtn.disabled = true;
-            pushToSupabase().then(() => {
-                showToast("Data pushed to Cloud successfully!", "success");
-            }).catch(() => {
-                showToast("Failed to push data to Cloud.", "error");
-            }).finally(() => {
-                settingsPushBtn.innerHTML = '<i class="ph ph-cloud-arrow-up"></i> Force Upload to Cloud';
-                settingsPushBtn.disabled = false;
-            });
-        });
-    }
+
 
     // --- 🔐 Security PIN Modal Logic ---
     const pinSecurityModal = document.getElementById('pinSecurityModal');
