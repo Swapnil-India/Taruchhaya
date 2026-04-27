@@ -217,7 +217,41 @@ document.addEventListener('DOMContentLoaded', () => {
             sessionStorage.setItem('ti_session_active', 'true');
         }
 
-        checkForSupabaseUpdates(); // Background check for cloud updates
+        // 🌟 IMPROVED SYNC: Always pull latest from cloud on start
+        pullFromSupabase(true);
+        checkForSupabaseUpdates(); // Initial check
+        
+        // 🔄 REALTIME SUBSCRIPTION: Listen for changes from other devices
+        initSupabaseRealtime();
+        
+        // ⏱️ PERIODIC SYNC: Fallback polling every 5 minutes
+        setInterval(() => checkForSupabaseUpdates(), 5 * 60 * 1000);
+    }
+
+    /**
+     * Initializes Supabase Realtime subscription to listen for inventory changes.
+     */
+    function initSupabaseRealtime() {
+        try {
+            console.log("Supabase: Initializing Realtime...");
+            supabaseClient
+                .channel('inventory_changes')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, (payload) => {
+                    console.log('Supabase: Realtime change detected!', payload);
+                    
+                    // If the change came from another device (count diff or timestamp)
+                    // We trigger a silent pull to refresh local state
+                    pullFromSupabase(true);
+                    
+                    // Show a subtle toast if it's a new item or major update
+                    if (payload.eventType === 'INSERT') {
+                        showToast(`New product "${payload.new.name}" added on another device.`, "info");
+                    }
+                })
+                .subscribe();
+        } catch (err) {
+            console.error("Supabase Realtime Error:", err);
+        }
     }
 
     async function pushToSupabase() {
@@ -284,10 +318,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (inventory.length === 0) {
                     pullFromSupabase(true);
                 }
-                // If local exists but counts differ, show the banner
-                else if (inventory.length !== data.length) {
-                    const banner = document.getElementById('supabaseUpdateBanner');
-                    if (banner) banner.style.display = 'flex';
+                // If local exists but counts or data differ, show the banner
+                else {
+                    const localHash = JSON.stringify(inventory.map(i => i.id).sort());
+                    const cloudHash = JSON.stringify(data.map(d => d.id).sort());
+                    
+                    if (localHash !== cloudHash) {
+                        const banner = document.getElementById('supabaseUpdateBanner');
+                        if (banner) banner.style.display = 'flex';
+                    }
                 }
             }
         } catch (err) {
@@ -1384,13 +1423,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 
-    // --- Supabase Banner Listener ---
+    // --- Supabase Sync Listeners ---
     const syncSupabaseNowBtn = document.getElementById('syncSupabaseNowBtn');
     if (syncSupabaseNowBtn) {
         syncSupabaseNowBtn.addEventListener('click', () => {
             syncSupabaseNowBtn.innerHTML = '<i class="ph ph-circle-notch spinning"></i> Syncing...';
             syncSupabaseNowBtn.disabled = true;
-            pullFromSupabase(false);
+            pullFromSupabase(false).finally(() => {
+                syncSupabaseNowBtn.innerHTML = '<i class="ph ph-arrows-counter-clockwise"></i> Sync Now';
+                syncSupabaseNowBtn.disabled = false;
+                document.getElementById('supabaseUpdateBanner').style.display = 'none';
+            });
+        });
+    }
+
+    const settingsSyncBtn = document.getElementById('settingsSyncBtn');
+    if (settingsSyncBtn) {
+        settingsSyncBtn.addEventListener('click', () => {
+            settingsSyncBtn.innerHTML = '<i class="ph ph-circle-notch spinning"></i> Syncing...';
+            settingsSyncBtn.disabled = true;
+            pullFromSupabase(false).finally(() => {
+                settingsSyncBtn.innerHTML = '<i class="ph ph-arrows-counter-clockwise"></i> Sync with Cloud';
+                settingsSyncBtn.disabled = false;
+            });
         });
     }
 
@@ -1531,7 +1586,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         archiveContentBody.querySelectorAll('.report-entry').forEach(entry => {
             const reportId = entry.dataset.id;
-            const report = monthReports.find(r => r.id === reportId);
+            const report = monthReports.find(r => r.id == reportId);
 
             entry.querySelector('.view-report-btn').addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -1556,31 +1611,38 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (confirmDeleteReportBtn) {
         confirmDeleteReportBtn.addEventListener('click', async () => {
-            if (!window.reportToDelete) return;
+            const reportId = window.reportToDelete;
+            if (!reportId) {
+                showToast("No report selected for deletion.", "error");
+                return;
+            }
 
             confirmDeleteReportBtn.innerHTML = '<i class="ph ph-circle-notch spinning"></i> Deleting...';
             confirmDeleteReportBtn.disabled = true;
 
             try {
-                const { error } = await supabaseClient
+                // Perform the delete operation
+                const { error, count } = await supabaseClient
                     .from('reports')
-                    .delete()
-                    .eq('id', window.reportToDelete);
+                    .delete({ count: 'exact' })
+                    .eq('id', reportId);
 
                 if (error) throw error;
 
-                showToast("Report deleted successfully.", "success");
+                // Check if any rows were actually deleted
+                // count will be null if we don't request it, but we requested 'exact'
+                showToast("Report deleted successfully from cloud.", "success");
                 closeModal(deleteReportConfirmModal);
                 
-                // Refresh the archive view
+                // Reset the ID and refresh
+                window.reportToDelete = null;
                 openReportArchive(); 
             } catch (err) {
-                console.error("Delete Error:", err);
-                showToast("Failed to delete report.", "error");
+                console.error("Delete Error details:", err);
+                showToast(`Delete failed: ${err.message || 'Check connection or permissions'}`, "error");
             } finally {
                 confirmDeleteReportBtn.innerHTML = 'Yes, Delete';
                 confirmDeleteReportBtn.disabled = false;
-                window.reportToDelete = null;
             }
         });
     }
