@@ -263,15 +263,16 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             // 🛡️ ID SANITIZER: Ensure all IDs are valid UUIDs before pushing
             const sanitizedInventory = inventory.map(item => {
-                // If it's a legacy 'p123' style ID, generate a new UUID
-                // (Note: Supabase uuid columns will reject 'p' strings)
-                const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id);
+                const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id);
                 if (!isUuid) {
                     item.id = crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
                         var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
                         return v.toString(16);
                     });
                 }
+                // Ensure created_at exists
+                if (!item.created_at) item.created_at = Date.now();
+
                 return {
                     id: item.id,
                     name: item.name,
@@ -399,17 +400,35 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data) {
                 let localChanged = false;
                 
-                // 🛡️ SAFE MERGE & RECONCILIATION LOGIC:
+                // 🛡️ SMART SYNC LOGIC:
+                const lastSyncTime = parseInt(localStorage.getItem('last_sync_time') || '0');
+                const cloudIds = data.map(d => d.id);
+                
+                // 1. Handle Deletions (Items in local but NOT in cloud)
+                inventory = inventory.filter(localItem => {
+                    if (cloudIds.includes(localItem.id)) return true;
+                    
+                    // If not in cloud, was it just added locally?
+                    const isNewLocal = (localItem.created_at || 0) > lastSyncTime;
+                    if (isNewLocal) {
+                        console.log(`Supabase: Keeping new local item "${localItem.name}"`);
+                        return true;
+                    }
+                    
+                    // It's an old item missing from cloud -> It was deleted elsewhere
+                    console.log(`Supabase: Syncing deletion of "${localItem.name}"`);
+                    localChanged = true;
+                    return false;
+                });
+
+                // 2. Add/Update items from Cloud to Local
                 data.forEach(cloudItem => {
-                    // 1. Try matching by ID (Best)
                     let localItem = inventory.find(i => i.id === cloudItem.id);
                     
-                    // 2. Fallback: Reconcile legacy 'p123' IDs with Cloud UUIDs using Barcode
                     if (!localItem && cloudItem.barcode) {
                         localItem = inventory.find(i => i.barcode === cloudItem.barcode && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(i.id));
                         if (localItem) {
-                            console.log(`Supabase: Reconciling legacy item "${localItem.name}" with Cloud UUID.`);
-                            localItem.id = cloudItem.id; // Switch local to use the Cloud's official UUID
+                            localItem.id = cloudItem.id;
                         }
                     }
 
@@ -419,35 +438,32 @@ document.addEventListener('DOMContentLoaded', () => {
                         barcode: cloudItem.barcode,
                         category: cloudItem.category,
                         price: parseFloat(cloudItem.price),
-                        stock: cloudItem.stock
+                        stock: cloudItem.stock,
+                        created_at: lastSyncTime // Assume it exists if in cloud
                     };
 
                     if (!localItem) {
-                        // This is a brand new item from another device
                         inventory.push(mappedCloudItem);
                         localChanged = true;
                     } else {
-                        // Check if cloud data is different from local data
                         const isDifferent = localItem.name !== mappedCloudItem.name || 
                                            localItem.stock !== mappedCloudItem.stock || 
                                            localItem.price !== mappedCloudItem.price;
                         
                         if (isDifferent) {
-                            // Update local with cloud data (Cloud is master for existing IDs)
                             Object.assign(localItem, mappedCloudItem);
                             localChanged = true;
                         }
                     }
                 });
 
-                // 2. Identify Local items NOT in Cloud (Pending Uploads)
-                const pendingItems = inventory.filter(localItem => !data.find(d => d.id === localItem.id));
-                
-                if (pendingItems.length > 0) {
-                    // 🚨 DANGER PREVENTED: We found items locally that are NOT in the cloud.
-                    // Instead of deleting them, we keep them and trigger an upload.
-                    console.log(`Supabase: ${pendingItems.length} items are local-only. Keeping them and pushing...`);
-                    pushToSupabase(false); // Silent push to back them up
+                // Update Sync Timestamp
+                localStorage.setItem('last_sync_time', Date.now().toString());
+
+                // 3. Trigger push for any local-only items we kept
+                const localOnly = inventory.filter(i => !cloudIds.includes(i.id));
+                if (localOnly.length > 0) {
+                    pushToSupabase(false);
                 }
 
                 if (localChanged) {
@@ -1019,13 +1035,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     productForm.addEventListener('submit', (e) => {
         e.preventDefault();
+        const barcode = document.getElementById('prodBarcode').value.trim();
+        
+        // 🛡️ DUPLICATE PREVENTION: Check if barcode already exists
+        if (barcode && inventory.some(item => item.barcode === barcode)) {
+            showToast("A product with this barcode already exists. Please use a unique barcode.", "error");
+            return;
+        }
+
         const newProduct = {
             id: crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
                 var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
                 return v.toString(16);
             }),
+            created_at: Date.now(),
             name: document.getElementById('prodName').value,
-            barcode: document.getElementById('prodBarcode').value.trim(),
+            barcode: barcode,
             category: document.getElementById('prodCategory').value,
             price: parseFloat(document.getElementById('prodPrice').value),
             stock: parseInt(document.getElementById('prodStock').value)
@@ -1042,10 +1067,18 @@ document.addEventListener('DOMContentLoaded', () => {
         editProductForm.addEventListener('submit', (e) => {
             e.preventDefault();
             const id = document.getElementById('editProdId').value;
+            const barcode = document.getElementById('editProdBarcode').value.trim();
             const item = inventory.find(p => p.id === id);
+
             if (item) {
+                // 🛡️ DUPLICATE PREVENTION: Check if barcode is used by ANOTHER product
+                if (barcode && inventory.some(p => p.barcode === barcode && p.id !== id)) {
+                    showToast("This barcode is already assigned to another product.", "error");
+                    return;
+                }
+
                 item.name = document.getElementById('editProdName').value;
-                item.barcode = document.getElementById('editProdBarcode').value.trim();
+                item.barcode = barcode;
                 item.category = document.getElementById('editProdCategory').value;
                 item.price = parseFloat(document.getElementById('editProdPrice').value);
                 item.stock = parseInt(document.getElementById('editProdStock').value);
