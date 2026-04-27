@@ -254,8 +254,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function pushToSupabase() {
+    async function pushToSupabase(showSuccess = false) {
         if (!inventory || inventory.length === 0) return;
+        
+        const dot = document.getElementById('cloudStatus');
+        if (dot) dot.classList.add('syncing'); // Start pulsing
+
         try {
             // Sync Inventory using ID for stable conflict resolution
             const { error: invError } = await supabaseClient
@@ -271,9 +275,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 })), { onConflict: 'id' });
 
             if (invError) throw invError;
+            
             console.log("Supabase: Inventory synced.");
+            updateCloudStatus(true);
+            
+            if (showSuccess) {
+                showToast("Data successfully uploaded to Cloud!", "success");
+            }
         } catch (err) {
             console.error("Supabase Sync Error:", err);
+            updateCloudStatus(false);
+            showToast("Cloud sync failed. Check your connection.", "error");
+        } finally {
+            if (dot) dot.classList.remove('syncing'); // Stop pulsing
+        }
+    }
+
+    function updateCloudStatus(isOk) {
+        const dot = document.getElementById('cloudStatus');
+        if (dot) {
+            dot.style.backgroundColor = isOk ? 'var(--accent-success)' : 'var(--accent-danger)';
+            dot.style.boxShadow = isOk ? '0 0 8px var(--accent-success)' : '0 0 8px var(--accent-danger)';
+            dot.title = isOk ? 'Cloud Connection: Active' : 'Cloud Connection: Error';
         }
     }
 
@@ -360,39 +383,61 @@ document.addEventListener('DOMContentLoaded', () => {
             if (error) throw error;
 
             if (data) {
-                // If data is empty in cloud, we should optionally handle that. 
-                // But usually, it means it's a new system.
+                let localChanged = false;
                 
-                // Better change detection: Compare count AND content (stock, price, name)
-                const localState = JSON.stringify(inventory.map(i => ({id: i.id, s: i.stock, p: i.price})).sort((a,b) => a.id > b.id ? 1 : -1));
-                const cloudState = JSON.stringify(data.map(d => ({id: d.id, s: d.stock, p: d.price})).sort((a,b) => a.id > b.id ? 1 : -1));
+                // 🛡️ SAFE MERGE LOGIC:
+                // 1. Add/Update items from Cloud to Local
+                data.forEach(cloudItem => {
+                    const localItem = inventory.find(i => i.id === cloudItem.id);
+                    const mappedCloudItem = {
+                        id: cloudItem.id,
+                        name: cloudItem.name,
+                        barcode: cloudItem.barcode,
+                        category: cloudItem.category,
+                        price: parseFloat(cloudItem.price),
+                        stock: cloudItem.stock
+                    };
+
+                    if (!localItem) {
+                        // This is a brand new item from another device
+                        inventory.push(mappedCloudItem);
+                        localChanged = true;
+                    } else {
+                        // Check if cloud data is different from local data
+                        const isDifferent = localItem.name !== mappedCloudItem.name || 
+                                           localItem.stock !== mappedCloudItem.stock || 
+                                           localItem.price !== mappedCloudItem.price;
+                        
+                        if (isDifferent) {
+                            // Update local with cloud data (Cloud is master for existing IDs)
+                            Object.assign(localItem, mappedCloudItem);
+                            localChanged = true;
+                        }
+                    }
+                });
+
+                // 2. Identify Local items NOT in Cloud (Pending Uploads)
+                const pendingItems = inventory.filter(localItem => !data.find(d => d.id === localItem.id));
                 
-                const hasChanges = localState !== cloudState;
+                if (pendingItems.length > 0) {
+                    // 🚨 DANGER PREVENTED: We found items locally that are NOT in the cloud.
+                    // Instead of deleting them, we keep them and trigger an upload.
+                    console.log(`Supabase: ${pendingItems.length} items are local-only. Keeping them and pushing...`);
+                    pushToSupabase(false); // Silent push to back them up
+                }
 
-                if (hasChanges || !silent) {
-                    // Safety: Don't auto-update if a modal is open (to avoid losing user's unsaved input)
-                    const activeModal = document.querySelector('.modal-overlay.open');
-                    if (silent && activeModal) return; 
-
-                    inventory = data.map(d => ({
-                        id: d.id,
-                        name: d.name,
-                        barcode: d.barcode,
-                        category: d.category,
-                        price: parseFloat(d.price),
-                        stock: d.stock
-                    }));
-                    
-                    saveInventory(true); // Update local but don't re-push
-                    
-                    if (!silent) showToast("Cloud synchronization successful!", "success");
-                    else console.log("Supabase: Background sync completed.");
+                if (localChanged) {
+                    saveInventory(true); // Save local changes but don't re-push the whole thing
+                    if (!silent) showToast("Synchronization complete. Data merged safely.", "success");
                 } else if (!silent) {
-                    showToast("System is already up to date.", "info");
+                    showToast("Your data is already safe and up to date.", "info");
                 }
             }
         } catch (err) {
-            if (!silent) console.error("Supabase Pull Error:", err);
+            if (!silent) {
+                console.error("Supabase Pull Error:", err);
+                showToast("Could not reach Cloud. Using local data.", "warning");
+            }
         }
     }
 
@@ -414,7 +459,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateDashboard();
         renderInventoryTable();
         populatePosSelect();
-        if (!skipCloud) pushToSupabase();
+        if (!skipCloud) pushToSupabase(true);
     }
 
     function saveRevenue(amount, isOnline = false) {
@@ -428,7 +473,7 @@ document.addEventListener('DOMContentLoaded', () => {
         idbSet('taruchhaya_online_revenue', onlineRevenue).catch(err => console.error("IDB Save Error", err));
 
         updateDashboard();
-        pushToSupabase();
+        pushToSupabase(true);
     }
 
     /**
@@ -1445,14 +1490,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    const settingsSyncBtn = document.getElementById('settingsSyncBtn');
-    if (settingsSyncBtn) {
-        settingsSyncBtn.addEventListener('click', () => {
-            settingsSyncBtn.innerHTML = '<i class="ph ph-circle-notch spinning"></i> Syncing...';
-            settingsSyncBtn.disabled = true;
-            pullFromSupabase(false).finally(() => {
-                settingsSyncBtn.innerHTML = '<i class="ph ph-arrows-counter-clockwise"></i> Sync with Cloud';
-                settingsSyncBtn.disabled = false;
+    const settingsPushBtn = document.getElementById('settingsPushBtn');
+    if (settingsPushBtn) {
+        settingsPushBtn.addEventListener('click', () => {
+            settingsPushBtn.innerHTML = '<i class="ph ph-circle-notch spinning"></i> Pushing...';
+            settingsPushBtn.disabled = true;
+            pushToSupabase().then(() => {
+                showToast("Data pushed to Cloud successfully!", "success");
+            }).catch(() => {
+                showToast("Failed to push data to Cloud.", "error");
+            }).finally(() => {
+                settingsPushBtn.innerHTML = '<i class="ph ph-cloud-arrow-up"></i> Force Upload to Cloud';
+                settingsPushBtn.disabled = false;
             });
         });
     }

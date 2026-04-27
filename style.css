@@ -1794,4 +1794,27 @@ form {
         flex-direction: column;
         gap: 8px;
     }
+
+}
+
+/* Cloud Status Dot */
+.cloud-status-dot {
+    width: 8px;
+    height: 8px;
+    background-color: var(--accent-success);
+    border-radius: 50%;
+    margin-left: 8px;
+    box-shadow: 0 0 8px var(--accent-success);
+    transition: var(--transition);
+}
+
+.cloud-status-dot.syncing {
+    animation: cloudPulse 1s infinite alternate;
+}
+
+@keyframes cloudPulse {
+    from { opacity: 1; transform: scale(1); }
+    to { opacity: 0.5; transform: scale(1.5); }
+}
+
 }
