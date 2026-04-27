@@ -309,7 +309,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Quick check: compare counts or fetch metadata
             const { data, error } = await supabaseClient
                 .from('inventory')
-                .select('name');
+                .select('id');
 
             if (error) throw error;
 
@@ -359,14 +359,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (error) throw error;
 
-            if (data && data.length > 0) {
-                // Only update if data is actually different to avoid UI disturbance
-                const hasChanges = data.length !== inventory.length || 
-                                 JSON.stringify(data.map(d => d.name).sort()) !== JSON.stringify(inventory.map(i => i.name).sort());
+            if (data) {
+                // If data is empty in cloud, we should optionally handle that. 
+                // But usually, it means it's a new system.
+                
+                // Better change detection: Compare count AND content (stock, price, name)
+                const localState = JSON.stringify(inventory.map(i => ({id: i.id, s: i.stock, p: i.price})).sort((a,b) => a.id > b.id ? 1 : -1));
+                const cloudState = JSON.stringify(data.map(d => ({id: d.id, s: d.stock, p: d.price})).sort((a,b) => a.id > b.id ? 1 : -1));
+                
+                const hasChanges = localState !== cloudState;
 
-                if (hasChanges) {
+                if (hasChanges || !silent) {
                     // Safety: Don't auto-update if a modal is open (to avoid losing user's unsaved input)
-                    const activeModal = document.querySelector('.modal.open');
+                    const activeModal = document.querySelector('.modal-overlay.open');
                     if (silent && activeModal) return; 
 
                     inventory = data.map(d => ({
@@ -379,8 +384,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     }));
                     
                     saveInventory(true); // Update local but don't re-push
-                    if (!silent) showToast("Data restored from Supabase!", "success");
+                    
+                    if (!silent) showToast("Cloud synchronization successful!", "success");
                     else console.log("Supabase: Background sync completed.");
+                } else if (!silent) {
+                    showToast("System is already up to date.", "info");
                 }
             }
         } catch (err) {
