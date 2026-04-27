@@ -262,7 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const { error } = await supabaseClient
                 .from('inventory')
                 .delete()
-                .neq('id', '0'); 
+                .neq('id', '0');
             if (error) throw error;
             console.log("Supabase: Inventory cleared.");
         } catch (err) {
@@ -321,7 +321,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (error) throw error;
 
             if (data && data.length > 0) {
-                if (inventory.length === 0 || !silent) {
+                // Only update if data is actually different to avoid UI disturbance
+                const hasChanges = data.length !== inventory.length || 
+                                 JSON.stringify(data.map(d => d.name).sort()) !== JSON.stringify(inventory.map(i => i.name).sort());
+
+                if (hasChanges) {
+                    // Safety: Don't auto-update if a modal is open (to avoid losing user's unsaved input)
+                    const activeModal = document.querySelector('.modal.open');
+                    if (silent && activeModal) return; 
+
                     inventory = data.map(d => ({
                         id: d.id,
                         name: d.name,
@@ -330,13 +338,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         price: parseFloat(d.price),
                         stock: d.stock
                     }));
-                    saveInventory(true); // Save locally but don't re-push
-
-                    // Hide the banner if it was open
-                    const banner = document.getElementById('supabaseUpdateBanner');
-                    if (banner) banner.style.display = 'none';
-
+                    
+                    saveInventory(true); // Update local but don't re-push
                     if (!silent) showToast("Data restored from Supabase!", "success");
+                    else console.log("Supabase: Background sync completed.");
                 }
             }
         } catch (err) {
@@ -523,8 +528,11 @@ document.addEventListener('DOMContentLoaded', () => {
             r += `----------------------------------------------------\n`;
             r += `📦 INVENTORY & LOGISTICS\n`;
             r += `----------------------------------------------------\n`;
+            const currentInventoryValue = inventory.reduce((sum, item) => sum + (item.price * item.stock), 0);
+
             r += `New Purchase Orders: ${poCount}\n`;
-            r += `Expenditure on POs : ₹${poValue.toLocaleString('en-IN')}\n\n`;
+            r += `Expenditure on POs : ₹${poValue.toLocaleString('en-IN')}\n`;
+            r += `Closing Inv. Value : ₹${currentInventoryValue.toLocaleString('en-IN')}\n\n`;
 
             r += `ITEMIZED MOVEMENT & REVENUE:\n`;
             const nameW = 20, dataW = 6, revW = 10;

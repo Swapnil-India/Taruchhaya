@@ -49,12 +49,15 @@
 
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
-            <div class="sidebar-header" style="flex-direction: column; align-items: flex-start; height: auto; padding: 24px; gap: 4px;">
+            <div class="sidebar-header"
+                style="flex-direction: column; align-items: flex-start; height: auto; padding: 24px; gap: 4px;">
                 <div class="logo">
                     <div class="logo-icon"><i class="ph ph-sparkle"></i></div>
                     <h2>Taruchhaya</h2>
                 </div>
-                <div id="sidebarDate" style="font-size: 11px; color: var(--text-tertiary); font-weight: 500; margin-left: 4px; opacity: 0.8;"></div>
+                <div id="sidebarDate"
+                    style="font-size: 11px; color: var(--text-tertiary); font-weight: 500; margin-left: 4px; opacity: 0.8;">
+                </div>
             </div>
 
             <nav class="sidebar-nav">
@@ -143,25 +146,7 @@
                 </div>
 
 
-                <!-- ✨ Supabase Update Available Banner -->
-                <div id="supabaseUpdateBanner" class="drive-error-banner"
-                    style="display: none; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); color: #10b981; margin-bottom: 24px; animation: slideDown 0.4s ease-out;">
-                    <div class="banner-content">
-                        <div class="banner-icon"
-                            style="background: rgba(16, 185, 129, 0.1); color: #10b981; width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                            <i class="ph-fill ph-cloud-arrow-down" style="font-size: 20px;"></i>
-                        </div>
-                        <div class="banner-text">
-                            <h4 style="color: #10b981; font-weight: 600;">Cloud Updates Available</h4>
-                            <p style="color: var(--text-secondary); font-size: 13px;">Your cloud inventory has newer
-                                records. Sync now to stay up to date?</p>
-                        </div>
-                    </div>
-                    <button class="primary-btn" id="syncSupabaseNowBtn"
-                        style="background: #10b981; padding: 10px 20px; font-size: 13px; font-weight: 600; border: none; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);">
-                        Sync Now
-                    </button>
-                </div>
+
 
                 <div class="metrics-grid">
                     <div class="metric-card">
@@ -200,12 +185,14 @@
                 <div class="dashboard-bisection">
                     <div class="glass-panel" style="padding: 24px; min-height: 200px;">
                         <h3 style="margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
-                            <div style="width: 32px; height: 32px; background: rgba(239, 68, 68, 0.1); color: var(--accent-danger); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                            <div
+                                style="width: 32px; height: 32px; background: rgba(239, 68, 68, 0.1); color: var(--accent-danger); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
                                 <i class="ph-fill ph-package"></i>
                             </div>
                             Not Available Products
                         </h3>
-                        <div id="outOfStockList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px;">
+                        <div id="outOfStockList"
+                            style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px;">
                             <!-- Items populated by JS -->
                         </div>
                     </div>
