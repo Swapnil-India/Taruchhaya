@@ -1515,7 +1515,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div style="font-size: 11px; color: var(--text-tertiary);">Finalized on ${new Date(report.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
                         </div>
                     </div>
-                    <button class="primary-btn" style="height: 36px; padding: 0 12px; font-size: 12px;">View Virtually</button>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <button class="primary-btn view-report-btn" style="height: 36px; padding: 0 12px; font-size: 12px;">View Virtually</button>
+                        <button class="secondary-btn delete-report-btn" style="height: 36px; width: 36px; padding: 0; display: flex; align-items: center; justify-content: center; color: var(--accent-danger); border-color: rgba(239, 68, 68, 0.2);" title="Delete Report">
+                            <i class="ph ph-trash"></i>
+                        </button>
+                    </div>
                 </div>
             `;
         });
@@ -1525,10 +1530,58 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('backToFolders').addEventListener('click', () => openReportArchive());
 
         archiveContentBody.querySelectorAll('.report-entry').forEach(entry => {
-            entry.addEventListener('click', () => {
-                const report = monthReports.find(r => r.id === entry.dataset.id);
+            const reportId = entry.dataset.id;
+            const report = monthReports.find(r => r.id === reportId);
+
+            entry.querySelector('.view-report-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
                 openVirtualReport(report);
             });
+
+            entry.querySelector('.delete-report-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                window.reportToDelete = reportId;
+                openModal(document.getElementById('deleteReportConfirmModal'));
+            });
+
+            entry.addEventListener('click', () => {
+                openVirtualReport(report);
+            });
+        });
+    }
+
+    // --- Deletion Confirmation Logic ---
+    const confirmDeleteReportBtn = document.getElementById('confirmDeleteReportBtn');
+    const deleteReportConfirmModal = document.getElementById('deleteReportConfirmModal');
+
+    if (confirmDeleteReportBtn) {
+        confirmDeleteReportBtn.addEventListener('click', async () => {
+            if (!window.reportToDelete) return;
+
+            confirmDeleteReportBtn.innerHTML = '<i class="ph ph-circle-notch spinning"></i> Deleting...';
+            confirmDeleteReportBtn.disabled = true;
+
+            try {
+                const { error } = await supabaseClient
+                    .from('reports')
+                    .delete()
+                    .eq('id', window.reportToDelete);
+
+                if (error) throw error;
+
+                showToast("Report deleted successfully.", "success");
+                closeModal(deleteReportConfirmModal);
+                
+                // Refresh the archive view
+                openReportArchive(); 
+            } catch (err) {
+                console.error("Delete Error:", err);
+                showToast("Failed to delete report.", "error");
+            } finally {
+                confirmDeleteReportBtn.innerHTML = 'Yes, Delete';
+                confirmDeleteReportBtn.disabled = false;
+                window.reportToDelete = null;
+            }
         });
     }
 
