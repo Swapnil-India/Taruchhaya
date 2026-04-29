@@ -544,8 +544,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const targetView = document.getElementById(`view-${viewName}`);
                 if (targetView) targetView.classList.add('active');
 
-                // Close sidebar on mobile after selection
-                if (window.innerWidth <= 768 && sidebar) {
+                // Close sidebar on mobile/tablet after selection
+                if (window.innerWidth <= 1024 && sidebar) {
                     sidebar.classList.remove('open');
                 }
             }
@@ -818,7 +818,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         document.addEventListener('click', (e) => {
-            if (window.innerWidth <= 768 && !sidebar.contains(e.target) && !mobileSidebarToggle.contains(e.target)) {
+            if (window.innerWidth <= 1024 && !sidebar.contains(e.target) && !mobileSidebarToggle.contains(e.target)) {
                 sidebar.classList.remove('open');
             }
         });

@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Dashboard | Taruchhaya Inventory Management</title>
     <meta name="description"
         content="Taruchhaya - The enterprise-grade inventory management and business analytics platform. Glassmorphic design, cloud sync, and real-time intelligence.">
@@ -220,21 +220,23 @@
                 </div>
 
                 <div class="glass-panel">
-                    <table class="inventory-table">
-                        <thead>
-                            <tr>
-                                <th>Item Name</th>
-                                <th>Category</th>
-                                <th>Price</th>
-                                <th>Stock</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="inventoryList">
-                            <!-- Items populated by JS -->
-                        </tbody>
-                    </table>
+                    <div class="table-scroll-wrapper">
+                        <table class="inventory-table">
+                            <thead>
+                                <tr>
+                                    <th>Item Name</th>
+                                    <th>Category</th>
+                                    <th>Price</th>
+                                    <th>Stock</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inventoryList">
+                                <!-- Items populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
@@ -490,19 +492,21 @@
                     </div>
                 </div>
 
-                <table class="inventory-table">
-                    <thead>
-                        <tr>
-                            <th>Item Name</th>
-                            <th>Qty</th>
-                            <th>Subtotal</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="posItemList">
-                        <!-- Cart Items -->
-                    </tbody>
-                </table>
+                <div class="table-scroll-wrapper">
+                    <table class="inventory-table">
+                        <thead>
+                            <tr>
+                                <th>Item Name</th>
+                                <th>Qty</th>
+                                <th>Subtotal</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="posItemList">
+                            <!-- Cart Items -->
+                        </tbody>
+                    </table>
+                </div>
                 <div class="pos-total">
                     <h3>Total: ₹<span id="posTotalAmt">0</span></h3>
                 </div>
