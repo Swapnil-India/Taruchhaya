@@ -720,6 +720,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Logout & Report Buttons ---
     const reportBtn = document.getElementById('reportBtn');
     const headerReportBtn = document.getElementById('headerReportBtn');
+    const sidebarBrowseBtn = document.getElementById('sidebarBrowseBtn');
 
     function handleReportClick(e) {
         e.preventDefault();
@@ -735,6 +736,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (reportBtn) reportBtn.addEventListener('click', handleReportClick);
     if (headerReportBtn) headerReportBtn.addEventListener('click', handleBrowseClick);
+    if (sidebarBrowseBtn) sidebarBrowseBtn.addEventListener('click', handleBrowseClick);
 
     async function processLogout(e) {
         if (e) e.preventDefault();
