@@ -269,7 +269,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!inventory || inventory.length === 0) {
                 // Nothing to push (e.g. after factory reset), just mark synced
                 updateCloudStatus(true);
-                return;
+                return true;
             }
 
             // Upsert all local items using 'name' as conflict key
@@ -288,11 +288,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 .upsert(payload, { onConflict: 'name' });
 
             if (error) throw error;
+
+            // ✅ Push confirmed — clear pending flags from ALL items
+            inventory.forEach(item => { item._pendingCloudSync = false; });
             updateCloudStatus(true);
+            return true;
 
         } catch (err) {
             console.error('Cloud push failed:', err);
+            // Show a descriptive error so the user knows sync is broken
+            const msg = err?.message || err?.code || JSON.stringify(err);
+            showToast(`☁️ Cloud sync failed: ${msg}`, 'error');
             updateCloudStatus(false);
+            return false;
         } finally {
             if (dot) dot.classList.remove('syncing');
         }
@@ -443,9 +451,12 @@ document.addEventListener('DOMContentLoaded', () => {
      * Saves inventory to localStorage + IndexedDB and updates UI.
      * @param {boolean} skipCloud - If true, does NOT push to Supabase.
      */
-    function saveInventory(skipCloud = false) {
+    async function saveInventory(skipCloud = false) {
+        // Save locally FIRST (preserves _pendingCloudSync in memory)
         saveLocalOnly();
-        if (!skipCloud) pushToSupabase();
+        if (!skipCloud) {
+            await pushToSupabase();
+        }
     }
 
     /**
