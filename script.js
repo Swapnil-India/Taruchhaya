@@ -206,6 +206,19 @@ document.addEventListener('DOMContentLoaded', () => {
             totalRevenue = parseFloat(localStorage.getItem('taruchhaya_revenue')) || 0;
         }
 
+        // 🛠️ DATA INTEGRITY: Ensure every item has a unique ID for synchronization
+        let needsMigrationSave = false;
+        inventory.forEach(item => {
+            if (!item.id) {
+                item.id = crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                    const r = Math.random() * 16 | 0;
+                    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+                });
+                needsMigrationSave = true;
+            }
+        });
+        if (needsMigrationSave) saveLocalOnly();
+
         updateDashboard();
         renderInventoryTable();
         populatePosSelect();
@@ -258,7 +271,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * PUSH: Saves local inventory to the cloud (upsert by name).
+     * PUSH: Saves local inventory to the cloud (upsert by id).
      * Safe to call with empty inventory — will not return early so cloud clears work.
      */
     async function pushToSupabase() {
@@ -286,19 +299,16 @@ document.addEventListener('DOMContentLoaded', () => {
             // .select() returns the updated rows including cloud-assigned IDs (if any)
             const { data, error } = await supabaseClient
                 .from('inventory')
-                .upsert(payload, { onConflict: 'name' })
+                .upsert(payload, { onConflict: 'id' })
                 .select();
 
             if (error) throw error;
 
-            // ✅ Update local inventory with authoritative cloud data (IDs, etc.)
+            // ✅ Update local inventory with authoritative cloud data
             if (data && data.length > 0) {
                 data.forEach(cloudItem => {
-                    const localItem = inventory.find(i => 
-                        i.name.trim().toLowerCase() === cloudItem.name.trim().toLowerCase()
-                    );
+                    const localItem = inventory.find(i => i.id === cloudItem.id);
                     if (localItem) {
-                        localItem.id = cloudItem.id;
                         localItem._pendingCloudSync = false;
                     }
                 });
@@ -402,13 +412,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     changed = true;
                 } else {
-                    // Sync values if cloud is different
                     const cloudPrice = parseFloat(cloudItem.price) || 0;
                     const cloudStock = parseInt(cloudItem.stock) || 0;
-                    if (localItem.stock !== cloudStock || localItem.price !== cloudPrice || localItem.name !== cloudItem.name) {
+                    const cloudBarcode = cloudItem.barcode || '';
+                    const cloudCategory = cloudItem.category || 'General';
+
+                    if (localItem.stock !== cloudStock || 
+                        localItem.price !== cloudPrice || 
+                        localItem.name !== cloudItem.name || 
+                        localItem.barcode !== cloudBarcode || 
+                        localItem.category !== cloudCategory) {
+                        
                         localItem.stock = cloudStock;
                         localItem.price = cloudPrice;
                         localItem.name = cloudItem.name;
+                        localItem.barcode = cloudBarcode;
+                        localItem.category = cloudCategory;
                         localItem._pendingCloudSync = false;
                         changed = true;
                     }
@@ -598,26 +617,23 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {boolean} silent - If true, minimizes user feedback.
      */
     async function generateAndUploadReport(silent = false) {
-        if (!silent) showToast('Generating professional business report...', 'info');
+        if (!silent) showToast('Generating premium business report...', 'info');
 
         try {
             const now = new Date();
-            const dateStr = now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+            const dateStr = now.toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+            const shortDateStr = now.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: '2-digit' }).replace(/\//g, '');
             const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-
-            const dd = String(now.getDate()).padStart(2, '0');
-            const mm = String(now.getMonth() + 1).padStart(2, '0');
-            const yyyy = now.getFullYear();
-            const HH = String(now.getHours()).padStart(2, '0');
-            const MM = String(now.getMinutes()).padStart(2, '0');
-            const reportFileName = `Taruchhaya_Report_${dd}${mm}${yyyy}_${HH}${MM}.txt`;
+            
+            // Unique Report ID
+            const reportId = `TE-${shortDateStr}-${now.getHours()}${String(now.getMinutes()).padStart(2, '0')}`;
 
             // Session Data Gathering
             const sessionStartMs = parseInt(sessionStorage.getItem('ti_session_start')) || now.getTime();
             const durationMs = now.getTime() - sessionStartMs;
             const diffHours = Math.floor(durationMs / 3600000);
             const diffMins = Math.floor((durationMs % 3600000) / 60000);
-            const durationStr = `${diffHours}h ${diffMins}m`;
+            const durationStr = `${diffHours} Hours ${diffMins} Minutes`;
 
             const txCount = parseInt(sessionStorage.getItem('ti_tx_count') || '0');
             const poCount = parseInt(sessionStorage.getItem('ti_po_count') || '0');
@@ -631,39 +647,45 @@ document.addEventListener('DOMContentLoaded', () => {
                 .sort((a, b) => b.sessionSold - a.sessionSold)
                 .slice(0, 5);
 
-            // --- PROFESSIONAL REPORT GENERATION ---
-            let r = `====================================================\n`;
-            r += `       🌳 TARUCHHAYA ENTERPRISE - BUSINESS REPORT\n`;
-            r += `====================================================\n\n`;
+            const closingInvValue = inventory.reduce((sum, item) => sum + (item.price * item.stock), 0);
+            const avgOrderValue = txCount > 0 ? (totalRevenue / txCount) : 0;
+            
+            // Estimated Gross Margin (Currently estimated at 18% of revenue since cost price isn't tracked yet)
+            const estimatedMargin = totalRevenue * 0.18;
 
-            r += `📅 PERIOD          : ${dateStr}\n`;
-            r += `⏰ GENERATED       : ${timeStr}\n`;
-            r += `⏱️ SESSION DURATION: ${durationStr}\n\n`;
+            // --- PREMIUM REPORT GENERATION ---
+            let r = `╔══════════════════════════════════════════════════════════════╗\n`;
+            r += `║            🌳 TARUCHHAYA ENTERPRISE                        ║\n`;
+            r += `║                 DAILY BUSINESS REPORT                      ║\n`;
+            r += `╚══════════════════════════════════════════════════════════════╝\n\n`;
 
-            r += `----------------------------------------------------\n`;
-            r += `📊 FINANCIAL PERFORMANCE\n`;
-            r += `----------------------------------------------------\n`;
-            r += `TOTAL REVENUE      : ₹${totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
-            r += `  └─ Online (UPI)  : ₹${onlineRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
-            r += `  └─ Cash Sales    : ₹${(totalRevenue - onlineRevenue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n\n`;
+            r += `📅 Report Date      : ${dateStr}\n`;
+            r += `⏰ Generated At     : ${timeStr}\n`;
+            r += `🕒 Session Duration : ${durationStr}\n`;
+            r += `🧾 Report ID        : ${reportId}\n\n`;
 
-            r += `Total Transactions : ${txCount}\n`;
-            r += `Total Items Sold   : ${totalItemsSold}\n`;
-            r += `Average Order Value: ₹${txCount > 0 ? (totalRevenue / txCount).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '0.00'}\n\n`;
+            r += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+            r += `💰 FINANCIAL SUMMARY\n`;
+            r += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+            r += `🟢 Total Revenue            : ₹${totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+            r += `   ├─ UPI / Online Sales    : ₹${onlineRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+            r += `   └─ Cash Sales            : ₹${(totalRevenue - onlineRevenue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n\n`;
 
-            r += `----------------------------------------------------\n`;
-            r += `📦 INVENTORY & LOGISTICS\n`;
-            r += `----------------------------------------------------\n`;
-            const currentInventoryValue = inventory.reduce((sum, item) => sum + (item.price * item.stock), 0);
+            r += `🧾 Total Transactions       : ${txCount}\n`;
+            r += `📦 Total Products Sold      : ${totalItemsSold} Units\n`;
+            r += `📊 Average Order Value      : ₹${avgOrderValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+            r += `📈 Estimated Gross Margin   : ₹${estimatedMargin.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n\n`;
 
-            r += `New Purchase Orders: ${poCount}\n`;
-            r += `Expenditure on POs : ₹${poValue.toLocaleString('en-IN')}\n`;
-            r += `Closing Inv. Value : ₹${currentInventoryValue.toLocaleString('en-IN')}\n\n`;
+            r += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+            r += `📦 INVENTORY & STOCK OVERVIEW\n`;
+            r += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+            r += `🛒 Purchase Orders Created  : ${poCount}\n`;
+            r += `💸 Purchase Expenditure     : ₹${poValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+            r += `🏬 Closing Inventory Value  : ₹${closingInvValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n\n`;
 
-            r += `ITEMIZED MOVEMENT & REVENUE:\n`;
-            const nameW = 20, dataW = 6, revW = 10;
-            r += `${'Item Name'.padEnd(nameW)} | ${'Open'.padEnd(dataW)} | ${'In'.padEnd(dataW)} | ${'Out'.padEnd(dataW)} | ${'Close'.padEnd(dataW)} | Revenue\n`;
-            r += `${'-'.repeat(nameW)}-+-${'-'.repeat(dataW)}-+-${'-'.repeat(dataW)}-+-${'-'.repeat(dataW)}-+-${'-'.repeat(dataW)}-+-----------\n`;
+            r += `┌──────────────────────┬──────┬──────┬──────┬──────┬────────────┐\n`;
+            r += `│ Product Name         │ Open │  In  │ Out  │Close │ Revenue    │\n`;
+            r += `├──────────────────────┼──────┼──────┼──────┼──────┼────────────┤\n`;
 
             inventory.forEach(item => {
                 const sold = item.sessionSold || 0;
@@ -672,54 +694,89 @@ document.addEventListener('DOMContentLoaded', () => {
                 const opening = closing + sold - purchased;
                 const itemRev = sold * item.price;
 
-                const name = (item.name.length > (nameW - 3) ? item.name.substring(0, nameW - 3) + '..' : item.name).padEnd(nameW);
-                r += `${name} | ${String(opening).padEnd(dataW)} | ${String(purchased).padEnd(dataW)} | ${String(sold).padEnd(dataW)} | ${String(closing).padEnd(dataW)} | ₹${itemRev.toLocaleString('en-IN')}\n`;
-            });
-            r += `\n`;
+                const name = (item.name.length > 20 ? item.name.substring(0, 18) + '..' : item.name).padEnd(20);
+                const openStr = String(opening).padStart(4);
+                const inStr = String(purchased).padStart(4);
+                const outStr = String(sold).padStart(4);
+                const closeStr = String(closing).padStart(4);
+                const revStr = `₹${itemRev.toLocaleString('en-IN')}`.padStart(10);
 
-            r += `----------------------------------------------------\n`;
-            r += `📈 SALES ANALYTICS (TOP SELLERS)\n`;
-            r += `----------------------------------------------------\n`;
+                r += `│ ${name} │ ${openStr} │ ${inStr} │ ${outStr} │ ${closeStr} │ ${revStr} │\n`;
+            });
+            r += `└──────────────────────┴──────┴──────┴──────┴──────┴────────────┘\n\n`;
+
+            r += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+            r += `📈 TOP SELLING PRODUCTS\n`;
+            r += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+            
+            const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
             if (topSellers.length > 0) {
                 topSellers.forEach((item, idx) => {
-                    r += `${idx + 1}. ${item.name} (${item.sessionSold} units, ₹${(item.sessionSold * item.price).toLocaleString('en-IN')} revenue)\n`;
+                    const rev = item.sessionSold * item.price;
+                    r += `${medals[idx]} ${item.name.padEnd(20)} → ${String(item.sessionSold).padStart(2)} Units Sold | ₹${rev.toLocaleString('en-IN')} Revenue\n`;
                 });
             } else {
                 r += `No sales activity recorded in this session.\n`;
             }
             r += `\n`;
 
-            // --- NEW: LOW STOCK ALERTS ---
-            const lowStock = inventory.filter(i => i.stock <= 5);
-            if (lowStock.length > 0) {
-                r += `----------------------------------------------------\n`;
-                r += `⚠️ ACTION REQUIRED: RESTOCK ALERTS\n`;
-                r += `----------------------------------------------------\n`;
-                lowStock.forEach(item => {
-                    r += `❗ ${item.name.padEnd(20)} : Only ${item.stock} left in stock!\n`;
-                });
-                r += `\n`;
-            }
-
             const restocked = inventory.filter(i => i.restockCount > 0);
             if (restocked.length > 0) {
-                r += `----------------------------------------------------\n`;
-                r += `📋 OPERATIONAL LOG (RESTOCKS)\n`;
-                r += `----------------------------------------------------\n`;
+                r += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+                r += `📋 RESTOCK ACTIVITY LOG\n`;
+                r += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
                 restocked.forEach(item => {
                     const t = new Date(item.lastRestockTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-                    r += `✅ ${item.name} restocked ${item.restockCount}x (Last: ${t})\n`;
+                    r += `✅ ${item.name.padEnd(20)} restocked ${item.restockCount} Times   | Last Update: ${t}\n`;
                 });
                 r += `\n`;
             }
 
-            r += `====================================================\n`;
-            r += `        END OF ELECTRONICALLY GENERATED REPORT\n`;
-            r += `            Verified by Taruchhaya Systems\n`;
-            r += `====================================================\n`;
+            // --- DYNAMIC BUSINESS INSIGHTS ---
+            r += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+            r += `🧠 BUSINESS INSIGHTS\n`;
+            r += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+            
+            const insights = [];
+            if (topSellers.length > 0) {
+                insights.push(`• ${topSellers[0].name} generated the highest revenue today.`);
+            }
+            
+            const outOfStock = inventory.filter(i => i.stock === 0).length;
+            if (outOfStock > 0) {
+                insights.push(`• ${outOfStock} products reached zero stock before closing.`);
+            }
+
+            if (totalRevenue > 0) {
+                const upiPercent = Math.round((onlineRevenue / totalRevenue) * 100);
+                insights.push(`• UPI payments contributed nearly ${upiPercent}% of total revenue.`);
+            }
+
+            const lowStockCount = inventory.filter(i => i.stock > 0 && i.stock <= 5).length;
+            if (lowStockCount > 0) {
+                insights.push(`• ${lowStockCount} items are running low. Consider increasing stock for fast-moving items.`);
+            } else if (inventory.length > 0) {
+                insights.push(`• Inventory levels for most items are currently healthy.`);
+            }
+
+            if (restocked.length > 3) {
+                insights.push(`• High restocking frequency indicates strong demand during this session.`);
+            }
+
+            if (insights.length === 0) {
+                insights.push(`• Maintain current operational pace. Monitor stock levels periodically.`);
+            }
+
+            insights.forEach(insight => r += `${insight}\n`);
+            r += `\n`;
+
+            r += `╔══════════════════════════════════════════════════════════════╗\n`;
+            r += `║         END OF ELECTRONICALLY GENERATED REPORT             ║\n`;
+            r += `║                Verified by Taruchhaya Systems              ║\n`;
+            r += `╚══════════════════════════════════════════════════════════════╝\n`;
 
             if (!silent) {
-                // --- CLOUD UPLOAD (FINALIZATION) ---
+                // --- CLOUD UPLOAD ---
                 try {
                     await supabaseClient
                         .from('reports')
@@ -732,6 +789,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     console.error("Cloud Report Upload Failed:", cloudErr);
                     showToast('Failed to sync report to Cloud.', 'error');
                 }
+
+                // Show the report virtually to the user immediately
+                openVirtualReport({ report_date: dateStr, content: r });
 
                 resetRevenue();
                 resetSessionAnalytics();
@@ -793,17 +853,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const invValueEl = document.getElementById('dashboardInvValue');
         if (invValueEl) invValueEl.textContent = `₹${invValue.toLocaleString('en-IN')}`;
 
-        // Calculate low stock items (threshold < 5)
-        const lowStockItems = inventory.filter(item => item.stock < 5);
-        const lowStockContainer = document.getElementById('dashboardLowStock');
-        if (lowStockContainer) {
-            if (lowStockItems.length > 0) {
-                const names = lowStockItems.map(item => item.name).join(', ');
-                lowStockContainer.innerHTML = `<span style="font-size: 16px; font-weight: 500; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3;">${names}</span>`;
-            } else {
-                lowStockContainer.innerHTML = `<span style="font-size: 16px; font-weight: 500; color: var(--text-secondary);">None</span>`;
-            }
-        }
+
 
         // Update Total Products count
         const totalProdsEl = document.getElementById('dashboardTotalProds');
@@ -813,26 +863,29 @@ document.addEventListener('DOMContentLoaded', () => {
         const revenueEl = document.getElementById('dashboardRevenue');
         if (revenueEl) revenueEl.textContent = `₹${totalRevenue.toLocaleString('en-IN')}`;
 
-        renderOutOfStock();
+        renderLowStockList();
     }
 
-    function renderOutOfStock() {
+    function renderLowStockList() {
         const container = document.getElementById('outOfStockList');
         if (!container) return;
 
-        const outOfStock = inventory.filter(item => item.stock <= 0);
+        const lowStock = inventory.filter(item => item.stock < 5);
 
-        if (outOfStock.length === 0) {
-            container.innerHTML = `<p style="grid-column: 1/-1; color: var(--text-tertiary); font-size: 13px; text-align: center; padding: 20px; background: rgba(255,255,255,0.02); border-radius: 10px; border: 1px dashed var(--border-color);">All products are currently in stock.</p>`;
+        if (lowStock.length === 0) {
+            container.innerHTML = `<p style="grid-column: 1/-1; color: var(--text-tertiary); font-size: 13px; text-align: center; padding: 20px; background: rgba(255,255,255,0.02); border-radius: 10px; border: 1px dashed var(--border-color);">All products have healthy stock levels (5+).</p>`;
             return;
         }
 
-        container.innerHTML = outOfStock.map(item => `
-            <div style="background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.1); padding: 12px; border-radius: 10px; display: flex; align-items: center; gap: 10px; animation: fadeIn 0.3s ease-out;">
-                <div style="width: 8px; height: 8px; background: var(--accent-danger); border-radius: 50%; box-shadow: 0 0 8px var(--accent-danger);"></div>
-                <div style="font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${item.name}</div>
-            </div>
-        `).join('');
+        container.innerHTML = lowStock.map(item => {
+            const dotHtml = item.stock <= 0 ? `<div style="width: 8px; height: 8px; background: var(--accent-danger); border-radius: 50%; box-shadow: 0 0 8px var(--accent-danger);"></div>` : '';
+            return `
+                <div style="background: ${item.stock <= 0 ? 'rgba(239, 68, 68, 0.05)' : 'rgba(245, 158, 11, 0.05)'}; border: 1px solid ${item.stock <= 0 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)'}; padding: 12px; border-radius: 10px; display: flex; align-items: center; gap: 10px; animation: fadeIn 0.3s ease-out;">
+                    ${dotHtml}
+                    <div style="font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${item.name} (${item.stock})</div>
+                </div>
+            `;
+        }).join('');
     }
 
 
