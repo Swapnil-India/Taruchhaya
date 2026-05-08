@@ -267,37 +267,58 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             if (!inventory || inventory.length === 0) {
-                // Nothing to push (e.g. after factory reset), just mark synced
                 updateCloudStatus(true);
                 return true;
             }
 
-            // Upsert all local items using 'name' as conflict key
-            const payload = inventory.map(item => ({
-                id: item.id,
-                name: item.name.trim(),
-                barcode: item.barcode || '',
-                category: item.category || 'General',
-                price: parseFloat(item.price) || 0,
-                stock: parseInt(item.stock) || 0,
-                last_updated: new Date().toISOString()
-            }));
+            // Prepare payload. Use existing ID if available to ensure correct upsert.
+            const payload = inventory.map(item => {
+                const data = {
+                    name: item.name.trim(),
+                    barcode: item.barcode || '',
+                    category: item.category || 'General',
+                    price: parseFloat(item.price) || 0,
+                    stock: parseInt(item.stock) || 0,
+                    last_updated: new Date().toISOString()
+                };
+                // If we have a cloud-assigned ID (not a local UUID), send it.
+                // Cloud IDs are usually integers or specific UUID formats from Supabase.
+                // The local UUID is just a placeholder until first push.
+                if (item.id && !item._pendingCloudSync) {
+                    data.id = item.id;
+                }
+                return data;
+            });
 
-            const { error } = await supabaseClient
+            // .select() returns the updated rows including cloud-assigned IDs
+            const { data, error } = await supabaseClient
                 .from('inventory')
-                .upsert(payload, { onConflict: 'name' });
+                .upsert(payload, { onConflict: 'name' })
+                .select();
 
             if (error) throw error;
 
-            // ✅ Push confirmed — clear pending flags from ALL items
-            inventory.forEach(item => { item._pendingCloudSync = false; });
+            // ✅ Update local inventory with authoritative cloud data (IDs, etc.)
+            if (data && data.length > 0) {
+                data.forEach(cloudItem => {
+                    const localItem = inventory.find(i => 
+                        i.name.trim().toLowerCase() === cloudItem.name.trim().toLowerCase()
+                    );
+                    if (localItem) {
+                        localItem.id = cloudItem.id;
+                        localItem._pendingCloudSync = false;
+                    }
+                });
+            }
+
+            // Save the updated IDs locally
+            saveLocalOnly();
             updateCloudStatus(true);
             return true;
 
         } catch (err) {
             console.error('Cloud push failed:', err);
-            // Show a descriptive error so the user knows sync is broken
-            const msg = err?.message || err?.code || JSON.stringify(err);
+            const msg = err?.message || err?.code || "Check internet connection";
             showToast(`☁️ Cloud sync failed: ${msg}`, 'error');
             updateCloudStatus(false);
             return false;
@@ -346,7 +367,7 @@ document.addEventListener('DOMContentLoaded', () => {
      *   storage never have `_pendingCloudSync` set.
      */
     async function pullFromSupabase() {
-        if (_isSyncing) return; // Prevent concurrent sync operations
+        if (_isSyncing) return;
         _isSyncing = true;
 
         const dot = document.getElementById('cloudStatus');
@@ -359,70 +380,76 @@ document.addEventListener('DOMContentLoaded', () => {
 
             let changed = false;
             const cloudIds = new Set(data.map(d => d.id));
+            const cloudNames = new Set(data.map(d => d.name.trim().toLowerCase()));
 
-            // Step 1: Merge all cloud items into local inventory
+            // Step 1: Merge cloud items into local state
             data.forEach(cloudItem => {
-                // Match by ID first, then by name (handles ID alignment after first push)
                 let localItem = inventory.find(i => i.id === cloudItem.id);
                 if (!localItem) {
                     localItem = inventory.find(i =>
                         i.name.trim().toLowerCase() === cloudItem.name.trim().toLowerCase()
                     );
                     if (localItem) {
-                        localItem.id = cloudItem.id; // Adopt the authoritative cloud ID
-                        localItem._pendingCloudSync = false; // Now confirmed in cloud
+                        localItem.id = cloudItem.id;
+                        localItem._pendingCloudSync = false;
                         changed = true;
                     }
                 }
 
                 if (!localItem) {
-                    // New item from cloud (added on another device or via Supabase dashboard)
+                    // New item from cloud
                     inventory.push({
                         id: cloudItem.id,
                         name: cloudItem.name,
                         barcode: cloudItem.barcode || '',
                         category: cloudItem.category || 'General',
                         price: parseFloat(cloudItem.price) || 0,
-                        stock: parseInt(cloudItem.stock) || 0
-                        // No _pendingCloudSync — already confirmed in cloud
+                        stock: parseInt(cloudItem.stock) || 0,
+                        _pendingCloudSync: false
                     });
                     changed = true;
                 } else {
-                    // Item exists in both — clear pending flag and sync values from cloud
-                    localItem._pendingCloudSync = false;
+                    // Sync values if cloud is different
                     const cloudPrice = parseFloat(cloudItem.price) || 0;
                     const cloudStock = parseInt(cloudItem.stock) || 0;
-                    if (localItem.stock !== cloudStock || localItem.price !== cloudPrice) {
+                    if (localItem.stock !== cloudStock || localItem.price !== cloudPrice || localItem.name !== cloudItem.name) {
                         localItem.stock = cloudStock;
                         localItem.price = cloudPrice;
+                        localItem.name = cloudItem.name;
+                        localItem._pendingCloudSync = false;
                         changed = true;
                     }
                 }
             });
 
-            // Step 2: Handle items not in cloud
-            const itemsNotInCloud = inventory.filter(i => !cloudIds.has(i.id));
-            const itemsToPush   = itemsNotInCloud.filter(i => i._pendingCloudSync === true);
-            const itemsToDelete = itemsNotInCloud.filter(i => i._pendingCloudSync !== true);
+            // Step 2: Handle local items not in cloud
+            // An item is deleted ONLY if it's not in cloud AND not pending sync
+            const originalLength = inventory.length;
+            inventory = inventory.filter(item => {
+                const inCloud = cloudIds.has(item.id) || cloudNames.has(item.name.trim().toLowerCase());
+                const isPending = item._pendingCloudSync === true;
+                
+                if (!inCloud && !isPending) {
+                    console.log(`Removing ${item.name} (not in cloud and not pending)`);
+                    return false;
+                }
+                return true;
+            });
 
-            // Remove items that are confirmed deleted from cloud
-            if (itemsToDelete.length > 0) {
-                inventory = inventory.filter(i => cloudIds.has(i.id) || i._pendingCloudSync === true);
-                changed = true;
-                console.log(`Removed ${itemsToDelete.length} item(s) deleted from cloud.`);
-            }
+            if (inventory.length !== originalLength) changed = true;
 
-            // Step 3: Save local state (without cloud push to avoid loops)
             if (changed) {
                 saveLocalOnly();
             }
 
             updateCloudStatus(true);
 
-            // Step 4: Push any locally-added items that aren't in cloud yet
-            if (itemsToPush.length > 0) {
-                console.log(`Pushing ${itemsToPush.length} new local item(s) to cloud...`);
-                await pushToSupabase();
+            // Step 3: Trigger push for pending items if any survived/were added
+            const hasPending = inventory.some(i => i._pendingCloudSync === true);
+            if (hasPending) {
+                // We don't await here to avoid blocking pull completion, 
+                // but pushToSupabase has its own guards.
+                pushToSupabase();
             }
 
         } catch (err) {
@@ -430,8 +457,7 @@ document.addEventListener('DOMContentLoaded', () => {
             updateCloudStatus(false);
         } finally {
             _isSyncing = false;
-            const dot2 = document.getElementById('cloudStatus');
-            if (dot2) dot2.classList.remove('syncing');
+            if (dot) dot.classList.remove('syncing');
         }
     }
 
@@ -465,15 +491,12 @@ document.addEventListener('DOMContentLoaded', () => {
      * avoid infinite push-pull loops.
      */
     function saveLocalOnly() {
-        // Strip the in-memory session flag before persisting — it must never be saved to storage.
-        // On next load, items from storage will have no _pendingCloudSync, which is correct:
-        // they are treated as "previously synced" and will be deleted if cloud has removed them.
-        const toSave = inventory.map(item => {
-            const { _pendingCloudSync, cloudConfirmed, ...rest } = item;
-            return rest;
-        });
-        localStorage.setItem('taruchhaya_inventory', JSON.stringify(toSave));
-        idbSet('taruchhaya_inventory', toSave).catch(err => console.error("IDB Save Error", err));
+        // IMPORTANT: We now PERSIST the _pendingCloudSync flag.
+        // This ensures that if a sync fails and the user refreshes, the app
+        // still knows the product is new and shouldn't be deleted by the cloud pull.
+        localStorage.setItem('taruchhaya_inventory', JSON.stringify(inventory));
+        idbSet('taruchhaya_inventory', inventory).catch(err => console.error("IDB Save Error", err));
+        
         updateDashboard();
         renderInventoryTable();
         populatePosSelect();
