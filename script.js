@@ -271,26 +271,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 return true;
             }
 
-            // Prepare payload. Use existing ID if available to ensure correct upsert.
-            const payload = inventory.map(item => {
-                const data = {
-                    name: item.name.trim(),
-                    barcode: item.barcode || '',
-                    category: item.category || 'General',
-                    price: parseFloat(item.price) || 0,
-                    stock: parseInt(item.stock) || 0,
-                    last_updated: new Date().toISOString()
-                };
-                // If we have a cloud-assigned ID (not a local UUID), send it.
-                // Cloud IDs are usually integers or specific UUID formats from Supabase.
-                // The local UUID is just a placeholder until first push.
-                if (item.id && !item._pendingCloudSync) {
-                    data.id = item.id;
-                }
-                return data;
-            });
+            // Prepare payload. We now always send the ID (even for new items) 
+            // because the database has a NOT NULL constraint on the 'id' column.
+            const payload = inventory.map(item => ({
+                id: item.id,
+                name: item.name.trim(),
+                barcode: item.barcode || '',
+                category: item.category || 'General',
+                price: parseFloat(item.price) || 0,
+                stock: parseInt(item.stock) || 0,
+                last_updated: new Date().toISOString()
+            }));
 
-            // .select() returns the updated rows including cloud-assigned IDs
+            // .select() returns the updated rows including cloud-assigned IDs (if any)
             const { data, error } = await supabaseClient
                 .from('inventory')
                 .upsert(payload, { onConflict: 'name' })
