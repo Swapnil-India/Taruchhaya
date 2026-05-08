@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login | Taruchhaya Inventory Management</title>
-    <meta name="description" content="Sign in to Taruchhaya - The enterprise-grade inventory management and business analytics platform.">
+    <meta name="description"
+        content="Sign in to Taruchhaya - The enterprise-grade inventory management and business analytics platform.">
     <meta name="author" content="Taruchhaya Enterprise">
 
     <!-- Open Graph / Facebook -->
@@ -25,19 +26,19 @@
 
     <style>
         :root {
-            --bg-app: #09090b;
-            --bg-panel: rgba(24, 24, 27, 0.75);
-            --bg-panel-solid: #18181b;
-            --bg-sidebar: #121214;
-            --bg-hover: rgba(255, 255, 255, 0.05);
-            --text-primary: #f4f4f5;
-            --text-secondary: #a1a1aa;
-            --text-tertiary: #71717a;
-            --border-color: rgba(255, 255, 255, 0.08);
-            --border-highlight: rgba(255, 255, 255, 0.15);
+            --bg-app: #f8fafc;
+            --bg-panel: rgba(255, 255, 255, 0.85);
+            --bg-panel-solid: #ffffff;
+            --bg-sidebar: #ffffff;
+            --bg-hover: rgba(0, 0, 0, 0.04);
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-tertiary: #94a3b8;
+            --border-color: rgba(0, 0, 0, 0.08);
+            --border-highlight: rgba(0, 0, 0, 0.12);
             --accent-brand: #6366f1;
             --accent-brand-hover: #4f46e5;
-            --accent-brand-glow: rgba(99, 102, 241, 0.3);
+            --accent-brand-glow: rgba(99, 102, 241, 0.15);
             --accent-danger: #ef4444;
             --accent-success: #10b981;
             --ai-gradient: linear-gradient(135deg, #6366f1, #d946ef);
@@ -700,7 +701,9 @@
 
         <footer class="login-footer" style="margin-top: 24px; text-align: center;">
             <p style="font-size: 13px; color: var(--text-tertiary); font-weight: 500; letter-spacing: 0.4px;">
-                Developed with <span style="color: var(--accent-danger); animation: heartbeat 1.5s ease-in-out infinite; display: inline-block;">❤️</span> by Swapnil Sarkar.
+                Developed with <span
+                    style="color: var(--accent-danger); animation: heartbeat 1.5s ease-in-out infinite; display: inline-block;">❤️</span>
+                by Swapnil Sarkar.
             </p>
         </footer>
     </div>
@@ -708,11 +711,25 @@
     <!-- Heartbeat animation -->
     <style>
         @keyframes heartbeat {
-            0% { transform: scale(1); }
-            14% { transform: scale(1.3); }
-            28% { transform: scale(1); }
-            42% { transform: scale(1.3); }
-            70% { transform: scale(1); }
+            0% {
+                transform: scale(1);
+            }
+
+            14% {
+                transform: scale(1.3);
+            }
+
+            28% {
+                transform: scale(1);
+            }
+
+            42% {
+                transform: scale(1.3);
+            }
+
+            70% {
+                transform: scale(1);
+            }
         }
     </style>
 

@@ -598,18 +598,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // --- Theme Toggle ---
-    const themeBtn = document.querySelector('.theme-toggle');
-    themeBtn.addEventListener('click', () => {
-        const html = document.documentElement;
-        if (html.getAttribute('data-theme') === 'dark') {
-            html.setAttribute('data-theme', 'light');
-            themeBtn.innerHTML = '<i class="ph ph-sun"></i>';
-        } else {
-            html.setAttribute('data-theme', 'dark');
-            themeBtn.innerHTML = '<i class="ph ph-moon"></i>';
-        }
-    });
+
 
     // --- Report Generation Logic ---
     /**
